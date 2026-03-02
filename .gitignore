@@ -1,0 +1,33 @@
+# ==============================
+# Data Artifacts
+# ==============================
+artifacts/datasets/
+artifacts/checkpoints/
+artifacts/logs/
+artifacts/figs/
+
+# Generated Reports
+reports/statistical/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Virtual Environments
+env/
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# MATLAB
+*.asv
