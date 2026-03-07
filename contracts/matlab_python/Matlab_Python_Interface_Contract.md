@@ -13,7 +13,6 @@ This is a system-level boundary contract between MATLAB (producer) and Python (c
 
   * `dataset_seed`
   * RNG isolation
-  * Canonical hashing (`fnv1a64`)
 * The artifact hash is part of the reproducibility guarantee.
 
 ---
@@ -71,7 +70,9 @@ N_by_Ns_columns_are_samples
 
 * Signals are stored as columns.
 * No transposing in Python.
-* Any mismatch is failure.
+* A transpose is permitted only if HDF5 loading returns `(Ns × N)` while metadata layout declares `"N_by_Ns_columns_are_samples"`.
+* This correction is structural recovery, not a layout change.
+* Any other shape mismatch causes failure.
 
 ---
 
@@ -92,7 +93,7 @@ Required keys include:
 
 * `spec_version`
 * `dataset_seed`
-* `artifact_hash_fn = "fnv1a64"`
+* `artifact_hash_fn = "simple64_checksum"`
 * `artifact_hash`
 * `layout`
 * `dtype_policy`

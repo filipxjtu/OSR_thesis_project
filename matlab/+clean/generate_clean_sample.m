@@ -36,6 +36,8 @@ function [x_clean, y, params] = generate_clean_sample(class_id, sample_idx, spec
             error('Invalid class_id: %d. Must be 0-6.', class_id);
     end
 
+    x_clean = x_clean - mean(x_clean);
+
     % set label
     y = int32(class_id);
 

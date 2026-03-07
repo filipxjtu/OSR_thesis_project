@@ -33,4 +33,12 @@ def compute_stft(
         frames.append(magnitude)
 
     S = np.stack(frames, axis=1)  # (freq_bins, time_frames)
-    return np.log1p(S)
+
+    S = np.log1p(S)
+
+    mean_val = np.mean(S)
+    if mean_val > 0:
+        S = S / mean_val
+        #S = (S - np.mean(S)) / (np.std(S) + 1e-8)
+
+    return S

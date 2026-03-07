@@ -45,7 +45,7 @@ def _require(cond: bool, check_id: str, message: str, details: dict[str, Any]) -
 
 def check_no_nan_inf(bundle: DatasetBundle) -> list[FailedCheck]:
     fails: list[FailedCheck] = []
-    for ds in (bundle.clean, bundle.impaired_train, bundle.impaired_eval):
+    for ds in bundle.datasets():
         x = np.asarray(ds.x_time(), dtype=np.float64)
         bad = ~np.isfinite(x)
         fails += _require(
@@ -61,7 +61,7 @@ def check_time_domain_stats(bundle: DatasetBundle, th: Thresholds) -> tuple[list
     metrics: dict[str, Any] = {}
     fails: list[FailedCheck] = []
 
-    for ds in (bundle.clean, bundle.impaired_train, bundle.impaired_eval):
+    for ds in bundle.datasets():
         s = time_domain_stats(ds.x_time())
         metrics[ds.name] = {
             "mean": s.mean,
@@ -100,8 +100,9 @@ def check_freq_domain_stats(bundle: DatasetBundle, fs_hz: float, th: Thresholds)
     metrics: dict[str, Any] = {}
     fails: list[FailedCheck] = []
 
-    for ds in (bundle.clean, bundle.impaired_train, bundle.impaired_eval):
-        s = freq_domain_stats(ds.x_time(), fs_hz=fs_hz)
+    for ds in bundle.datasets():
+        n_time = ds.meta().get("N")
+        s = freq_domain_stats(ds.x_time(), fs_hz=fs_hz, n_time_expected=n_time)
         metrics[ds.name] = {
             "dc_ratio": s.dc_ratio,
             "spectral_centroid_hz": s.spectral_centroid,
@@ -110,12 +111,14 @@ def check_freq_domain_stats(bundle: DatasetBundle, fs_hz: float, th: Thresholds)
             "rolloff_95_hz": s.rolloff_95,
         }
 
+        #print(f"s.dc_ratio ({s.dc_ratio}) <= th.dc_ratio_max({th.dc_ratio_max})")
         fails += _require(
             s.dc_ratio <= th.dc_ratio_max,
             "C020.freq_dc_ratio_small",
             f"{ds.name}: DC ratio too large",
             {"dataset": ds.name, "dc_ratio": s.dc_ratio, "threshold": th.dc_ratio_max},
         )
+
         fails += _require(
             s.spectral_flatness >= th.flatness_min,
             "C021.freq_flatness_not_degenerate",
@@ -151,7 +154,7 @@ def check_class_balance(bundle: DatasetBundle, n_classes: int, th: Thresholds) -
         y = np.asarray(y, dtype=np.int64)
         return np.bincount(y, minlength=n_classes)
 
-    for ds in (bundle.clean, bundle.impaired_train, bundle.impaired_eval):
+    for ds in bundle.datasets():
         c = counts(ds.y())
         metrics[ds.name] = {"counts": c.tolist()}
 
@@ -201,11 +204,6 @@ def check_cross_mode_separation(bundle: DatasetBundle, fs_hz: float, th: Thresho
     x_tr = ensure_samples_first(np.asarray(bundle.impaired_train.x_time(), dtype=np.float64))
     x_ev = ensure_samples_first(np.asarray(bundle.impaired_eval.x_time(), dtype=np.float64))
 
-
-    #x_clean = np.asarray(bundle.clean.x_time(), dtype=np.float64)
-    #x_tr = np.asarray(bundle.impaired_train.x_time(), dtype=np.float64)
-    #x_ev = np.asarray(bundle.impaired_eval.x_time(), dtype=np.float64)
-
     # Time-domain effect sizes
     d_time_tr = effect_size_delta(x_clean, x_tr)
     d_time_ev = effect_size_delta(x_clean, x_ev)
@@ -216,13 +214,12 @@ def check_cross_mode_separation(bundle: DatasetBundle, fs_hz: float, th: Thresho
         X = np.fft.rfft(x, axis=1)
         return np.mean(np.abs(X), axis=0)
 
-    d_freq_tr = effect_size_delta(avg_spec(x_clean), avg_spec(x_tr))
-    d_freq_ev = effect_size_delta(avg_spec(x_clean), avg_spec(x_ev))
-    #d_freq_te = effect_size_delta(avg_spec(x_tr), avg_spec(x_ev))
-
+    spec_clean = avg_spec(x_clean)
     spec_tr = avg_spec(x_tr)
     spec_ev = avg_spec(x_ev)
 
+    d_freq_tr = effect_size_delta(spec_clean, spec_tr)
+    d_freq_ev = effect_size_delta(spec_clean, spec_ev)
     d_freq_te = float(np.linalg.norm(spec_tr - spec_ev) / (np.linalg.norm(spec_tr) + 1e-12))
 
 

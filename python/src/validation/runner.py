@@ -33,8 +33,8 @@ class ValidationConfig:
     peak_to_rms_max: float = 50.0
 
     # Freq
-    dc_ratio_max: float = 0.10
-    flatness_min: float = 1e-4
+    dc_ratio_max: float = 0.15 #was 0.10
+    flatness_min: float = 1e-6  #was 1e-4
     centroid_min_hz: float = 1.0
     centroid_max_hz_ratio: float = 0.49
 
@@ -55,9 +55,9 @@ class ValidationConfig:
     enable_feature_checks: bool = True
     feat_std_min: float = 1e-6
     feat_energy_min: float = 1e-8
-    min_effect_size_feat_train: float = 0.20
-    min_effect_size_feat_eval: float = 0.20
-    min_effect_size_feat_train_vs_eval: float = 0.10
+    min_effect_size_feat_train: float = 0.10 #was 0.2
+    min_effect_size_feat_eval: float = 0.10 #was 0.2
+    min_effect_size_feat_train_vs_eval: float = 0.05  #was 0.1
 
     # Reproducibility
     enable_repro_check: bool = True

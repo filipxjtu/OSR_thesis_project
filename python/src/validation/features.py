@@ -49,7 +49,7 @@ def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], di
     Runs only if ALL datasets provide x_feat != None.
     """
     feats = {}
-    for ds in (bundle.clean, bundle.impaired_train, bundle.impaired_eval):
+    for ds in bundle.datasets():
         xf = ds.x_feat()
         if xf is None:
             return [], {"skipped": True, "reason": f"{ds.name} has no x_feat()"}
@@ -58,6 +58,11 @@ def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], di
     fails: list[FailedCheck] = []
     metrics: dict[str, Any] = {"skipped": False}
 
+
+    def sample_energy(x: np.ndarray) -> np.ndarray:
+        x_flat = x.reshape(x.shape[0], -1)
+        return np.sum(x_flat * x_flat, axis=1)
+    energies = {}
     # Finite checks + collapse checks
     for name, x in feats.items():
         bad = ~np.isfinite(x)
@@ -77,9 +82,14 @@ def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], di
         )
 
         # per-sample energy sanity: mean(sum(x^2)) must not vanish
-        x_flat = x.reshape(x.shape[0], -1)
-        energy = np.mean(np.sum(x_flat * x_flat, axis=1))
-        energy = float(energy)
+
+        #x_flat = x.reshape(x.shape[0], -1)
+        #energy = np.mean(np.sum(x_flat * x_flat, axis=1))
+        energy_vec = sample_energy(x)
+        energy = float(np.mean(energy_vec))
+
+        energies[name] = energy_vec
+
         fails += _require(
             energy >= th.feat_energy_min,
             "F003.feat_energy_nonzero",
@@ -90,9 +100,9 @@ def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], di
         metrics[name] = {"std": std, "mean_energy": energy, "shape": list(x.shape)}
 
     # Separation checks (feature space)
-    c = feats[bundle.clean.name].reshape(feats[bundle.clean.name].shape[0], -1)
-    tr = feats[bundle.impaired_train.name].reshape(feats[bundle.impaired_train.name].shape[0], -1)
-    ev = feats[bundle.impaired_eval.name].reshape(feats[bundle.impaired_eval.name].shape[0], -1)
+    c =  energies[bundle.clean.name]
+    tr = energies[bundle.impaired_train.name]
+    ev = energies[bundle.impaired_eval.name]
 
     d_tr = effect_size_delta(c, tr)
     d_ev = effect_size_delta(c, ev)
@@ -104,18 +114,21 @@ def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], di
         "train_vs_eval": float(d_te),
     }
 
+    #print(f"d_tr ({d_tr}) >= th.min_effect_size_feat_train ({th.min_effect_size_feat_train})")
     fails += _require(
         d_tr >= th.min_effect_size_feat_train,
         "F010.feat_sep_clean_vs_train",
         "Feature-space separation too small: clean vs impaired_train",
         {"effect_size": float(d_tr), "threshold": th.min_effect_size_feat_train},
     )
+    #print(f"d_ev ({d_ev}) >= th.min_effect_size_feat_eval ({th.min_effect_size_feat_eval})")
     fails += _require(
         d_ev >= th.min_effect_size_feat_eval,
         "F011.feat_sep_clean_vs_eval",
         "Feature-space separation too small: clean vs impaired_eval",
         {"effect_size": float(d_ev), "threshold": th.min_effect_size_feat_eval},
     )
+    #print(f"d_te ({d_te}) >= th.min_effect_size_feat_train_vs_eval ({th.min_effect_size_feat_train_vs_eval})")
     fails += _require(
         d_te >= th.min_effect_size_feat_train_vs_eval,
         "F012.feat_sep_train_vs_eval",

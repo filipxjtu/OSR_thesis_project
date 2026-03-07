@@ -31,6 +31,8 @@ function [x_imp, imp_params] = apply_impairment(x_clean, sample_index, spec, mod
     x = x_clean(:); % column
     N = numel(x);
 
+    x = x - mean(x);
+
     if isfield(spec, 'N')
         assert(N == spec.N, 'apply_impairment:LengthMismatch', ...
             'x_clean length (%d) must equal spec.N (%d).', N, spec.N);

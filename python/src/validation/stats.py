@@ -97,13 +97,20 @@ def _spectral_flatness(p: ArrayF, eps: float = 1e-12) -> float:
     return float(gm / am) if am > 0 else float("nan")
 
 
-def freq_domain_stats(x_time: ArrayF, fs_hz: float) -> FreqDomainStats:
+def freq_domain_stats(x_time: ArrayF, fs_hz: float, n_time_expected: int=4800) -> FreqDomainStats:
     """
     Uses magnitude spectrum averaged over samples.
     x_time: (N_samples, N_time)
     """
     x = np.asarray(x_time, dtype=np.float64)
+    if x.shape[1] == n_time_expected:
+        pass
+    elif x.shape[0] == n_time_expected:
+        x = x.T
+    else:
+        raise ValueError("x_time must have shape (N_samples, N_time)")
     n = x.shape[1]
+
     X = np.fft.rfft(x, axis=1)
     mag = np.abs(X)
     p = np.mean(mag ** 2, axis=0)  # avg power vs freq bin, shape (n_rfft,)

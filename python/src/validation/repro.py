@@ -104,8 +104,8 @@ def check_reproducibility(
             "clean_digest": _mode_digest(bundle, "clean", fs_hz, n_classes, th),
             "imp_train_digest": _mode_digest(bundle, "impaired_train", fs_hz, n_classes, th),
             "imp_eval_digest": _mode_digest(bundle, "impaired_eval", fs_hz, n_classes, th),
+            "bundle_digest": _bundle_digest(bundle, fs_hz, n_classes, th),
         }
-        rec["bundle_digest"] = _bundle_digest(bundle, fs_hz, n_classes, th)
         records.append(rec)
 
     def all_equal(key: str) -> bool:

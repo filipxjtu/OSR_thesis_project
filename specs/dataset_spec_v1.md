@@ -18,12 +18,12 @@ Statistical report naming (reports/statistical/**)
 ## Stored arrays
 Clean:
 - variable_name: X_clean
-- shape: (N_samples, N)        <!-- or (N, N_samples) if that is your stored convention -->
+- shape: (N, N_samples)       <!-- or (N, N_samples) if that is your stored convention -->
 - dtype: float64 (MATLAB double)
 
 Impaired:
 - variable_name: X_imp
-- shape: (N_samples, N)
+- shape: (N, N_samples)
 - dtype: float64
 
 Labels:

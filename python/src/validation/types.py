@@ -38,3 +38,6 @@ class DatasetBundle:
     clean: DatasetView
     impaired_train: DatasetView
     impaired_eval: DatasetView
+
+    def datasets(self):
+        return self.clean, self.impaired_train, self.impaired_eval

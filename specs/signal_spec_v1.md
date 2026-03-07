@@ -36,7 +36,9 @@
   - depends_on: (dataset_seed, class_id, sample_index)
   - requirement: identical inputs -> identical outputs (signal + params)
 - checksum:
-  - algorithm: FNV-1a 64-bit
+  - algorithm: simple64_checksum
+  - description: uint64 accumulation over uint8 byte view of
+                  [X(:); double(y(:))] with wrap-around behavior
   - scope: checksum computed over stored dataset array + metadata (as defined in contract)
 
 ## Normalization

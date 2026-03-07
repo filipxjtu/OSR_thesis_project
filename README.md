@@ -14,9 +14,27 @@ README file for Thesis Project
 
         |datasets/
 
-             |clean/ \[artifacts like 'clean\_dataset\_v1\_seed123.mat' appear here]
+             |clean/
 
-             |impaired/ \[artifacts like 'impaired\_dataset\_v1\_seed123\_eval.mat' appear here]
+ 		 |clean\_dataset\_v1\_seed8.mat
+
+ 		 |clean\_dataset\_v1\_seed49.mat
+
+ 		 |clean\_dataset\_v1\_seed888.mat
+
+             |impaired/
+
+ 		 |impaired\_dataset\_v1\_seed8\_eval.mat
+
+ 		 |impaired\_dataset\_v1\_seed8\_train.mat
+
+ 		 |impaired\_dataset\_v1\_seed49\_train.mat
+
+ 		 |impaired\_dataset\_v1\_seed49\_eval.mat
+
+ 		 |impaired\_dataset\_v1\_seed888\_train.mat
+
+ 		 |impaired\_dataset\_v1\_seed888\_eval.mat
 
         |figs/
 
@@ -76,6 +94,14 @@ README file for Thesis Project
 
  	     |validate\_active\_fields.m
 
+        |+core/
+
+ 	     |compute\_artifact\_hash.m
+
+ 	     |get\_canonical\_spec.m
+
+ 	     |validate\_spec\_structure.m
+
         |+impaired/
 
  	     |apply\_impairment.m
@@ -87,14 +113,6 @@ README file for Thesis Project
  	     |init\_imp\_param\_record.m
 
  	     |report\_impaired\_dataset\_v1.m
-
-        |+core/
-
- 	     |compute\_artifact\_hash.m
-
- 	     |get\_canonical\_spec.m
-
- 	     |validate\_spec\_structure.m
 
         |export/
 
@@ -114,6 +132,8 @@ README file for Thesis Project
 
  		|contract.py
 
+ 		|dataset\_artifact.py
+
  		|exceptions.py
 
  		|loader.py
@@ -122,11 +142,47 @@ README file for Thesis Project
 
             |models/
 
+ 	    |preprocessing
+
+ 		|\_\_init\_\_.py
+
+ 		|dataset\_builder.py
+
+ 		|splitting.py
+
+ 		|stft.py
+
             |train/
 
             |utils/
 
+ 	    |validation
+
+ 		|\_\_init\_\_.py
+
+ 		|baseline.py
+
+ 		|checks.py
+
+ 		|exceptions.py
+
+ 		|features.py
+
+ 		|repro.py
+
+ 		|runner.py
+
+ 		|stats.py
+
+ 		|summary.py
+
+ 		|types.py
+
+
+
         |tests/
+
+ 	|\_\_init\_\_.py ...(nothing written here)
 
 
 
@@ -140,7 +196,29 @@ README file for Thesis Project
 
         |experiments/
 
-        |statistical/\[reports like 'impaired\_dataset\_v1\_seed123\_eval\_report.md' appear here)
+        |statistical/
+
+ 	     |clean\_dataset\_v1\_seed8\_statisticl\_report.md
+
+ 	     |clean\_dataset\_v1\_seed49\_statisticl\_report.md
+
+ 	     |clean\_dataset\_v1\_seed888\_statisticl\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed8\_eval\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed8\_train\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed49\_eval\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed49\_train\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed888\_eval\_report.md
+
+ 	     |impaired\_dataset\_v1\_seed888\_train\_report.md
+
+ 	     |validation\_seed49.json
+
+
 
         |README.md
 
@@ -148,15 +226,21 @@ README file for Thesis Project
 
    |scripts/
 
+ 	|pipe.py 
+
  	|run\_clean\_pipeline.m
 
  	|run\_impaired\_pipeline.m
+
+ 	|run\_validation.py
 
    |specs/
 
  	|dataset\_spec\_v1.md
 
  	|signal\_spec\_v1.md
+
+ 	|system\_spec\_v1.md
 
 
 

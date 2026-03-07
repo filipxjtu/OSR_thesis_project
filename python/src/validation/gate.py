@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from python.src.dataio import load_artifact
+from python.src.preprocessing.dataset_builder import build_feature_tensor
+
+from .runner import validate_all, ValidationConfig
+from .types import DatasetBundle, DatasetView
+from .exceptions import ValidationError
+
+
+# ==========================================================
+# Adapter
+# ==========================================================
+
+class ArtifactAdapter(DatasetView):
+    def __init__(self, name: str, artifact):
+        self._name = name
+        self._artifact = artifact
+        self._X_feat, self._y_feat = build_feature_tensor(artifact)
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def x_time(self):
+        return self._artifact.X
+
+    def y(self):
+        return self._artifact.y.reshape(-1).astype("int64")
+
+    def x_feat(self):
+        return self._X_feat
+
+    def meta(self):
+        return self._artifact.meta
+
+
+# ==========================================================
+# Public Validation Gate
+# ==========================================================
+
+def run_validation_gate(
+    *,
+    clean_file: str,
+    train_file: str,
+    eval_file: str,
+    spec_version: str,
+    n_classes: int,
+    report_name: str,
+) -> None:
+    """
+    Executes full dataset validation.
+    Raises ValidationError if failure.
+    Saves JSON summary on PASS.
+    """
+
+    clean_artifact = load_artifact(clean_file)
+    train_artifact = load_artifact(train_file)
+    eval_artifact  = load_artifact(eval_file)
+
+    bundle = DatasetBundle(
+        clean=ArtifactAdapter("clean", clean_artifact),
+        impaired_train=ArtifactAdapter("impaired_train", train_artifact),
+        impaired_eval=ArtifactAdapter("impaired_eval", eval_artifact),
+    )
+
+    config = ValidationConfig(
+        spec_version_expected=spec_version,
+        n_classes_expected=n_classes,
+        enable_feature_checks=True,
+        enable_repro_check=False,
+        repro_trials=2,
+    )
+
+    summary = validate_all(
+        bundle=bundle,
+        config=config,
+        #loader_for_repro=lambda: DatasetBundle(
+        #    clean=ArtifactAdapter("clean", load_artifact(clean_file)),
+        #    impaired_train=ArtifactAdapter("impaired_train", load_artifact(train_file)),
+        #    impaired_eval=ArtifactAdapter("impaired_eval", load_artifact(eval_file)),
+        #),
+    )
+
+    # Save report
+    project_root = Path(__file__).resolve().parents[3]
+    report_dir = project_root / "reports" / "validations"
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = report_dir / report_name
+    summary.save_json(report_path)
+
+    print(f"\nValidation report saved to: {report_path}")
