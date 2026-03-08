@@ -16,6 +16,7 @@ from python.src.train.engine import train_one_epoch, evaluate
 from python.src.train.hparams import HParams
 from python.src.utils.dataloaders import create_train_loader, create_eval_loader
 from python.src.utils.device import resolve_device
+from python.src.analysis.model_diagnostics import generate_confusion_outputs
 
 from python.src.models.baseline_cnn import BaselineCNN
 #from python.src.models.baseline_cnn import [future models 1]
@@ -136,6 +137,17 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
                 "val_accuracy": float(val_acc),
             }
         )
+    model.load_state_dict(best_state)
+
+    figures_dir = project_root / "reports" / "figures" / f"model_seed{seed}"
+
+    generate_confusion_outputs(
+        model,
+        val_loader,
+        device,
+        figures_dir,
+        n_classes=7,
+    )
 
     ckpt_dir = project_root / "artifacts" / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -153,4 +165,5 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
 
     print(f"\nModel saved to: {ckpt_path}")
     print(f"Training log saved to: {log_path}")
-    print(f"Best validation accuracy: {100 * best_val_acc:.2f}")
+    print(f"Confusion matrix and per-class accuracy saved to: {figures_dir}")
+    print(f"\nBest validation accuracy: {100 * best_val_acc:.2f}")
