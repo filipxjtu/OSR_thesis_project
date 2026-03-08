@@ -8,6 +8,8 @@ artifacts/figs/
 
 # Generated Reports
 reports/statistical/
+reports/validations/
+reports/figures/
 
 # Python
 __pycache__/
