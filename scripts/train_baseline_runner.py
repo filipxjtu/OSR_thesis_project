@@ -16,16 +16,18 @@ def main():
 
     project_root = find_project_root()
 
-    model = "baseline_cnn"
+    models = ["baseline_cnn", "first_residual_cnn"]
 
     seeds = [22, 42, 121]
 
-    for seed in seeds:
 
-        print(f"\n\nRunning experiment seed={seed}")
-        print("===================================\n")
+    for model in models:
+        for seed in seeds:
 
-        train_model(seed=seed, project_root=project_root, model_name=model)
+            print(f"\n\nRunning experiment model = {model}, seed={seed}")
+            print("===================================\n")
+
+            train_model(seed=seed, project_root=project_root, model_name=model)
 
 
 if __name__ == "__main__":

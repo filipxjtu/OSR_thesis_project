@@ -46,3 +46,10 @@ class BaselineCNN(nn.Module):
         z = torch.flatten(z, start_dim=1)
         logits = self.classifier(z)
         return logits
+
+    def extract_embedding(self, x):
+        x = self.features(x)  # convolutional blocks
+        #x = self.pool(x)  # adaptive pooling if present
+        x = torch.flatten(x, 1)
+
+        return x

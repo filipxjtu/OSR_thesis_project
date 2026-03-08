@@ -6,6 +6,7 @@ import torch
 
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize
+from sklearn.manifold import TSNE
 
 
 def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_classes=7):
@@ -123,3 +124,56 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
     with open(out_dir / "per_class_accuracy.json", "w") as f:
         json.dump(per_class_accuracy, f, indent=2)
+
+
+
+
+def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
+
+    model.eval()
+
+    embeddings = []
+    labels = []
+
+    with torch.no_grad():
+        for X, y in dataloader:
+
+            X = X.to(device)
+
+            feat = model.extract_embedding(X)
+
+            embeddings.append(feat.cpu().numpy())
+            labels.append(y.numpy())
+
+    embeddings = np.concatenate(embeddings)
+    labels = np.concatenate(labels)
+
+    tsne = TSNE(
+        n_components=2,
+        perplexity=30,
+        init="pca",
+        random_state=42
+    )
+
+    emb_2d = tsne.fit_transform(embeddings)
+
+    plt.figure(figsize=(6,6))
+
+    for c in range(n_classes):
+
+        idx = labels == c
+
+        plt.scatter(
+            emb_2d[idx,0],
+            emb_2d[idx,1],
+            s=6,
+            label=f"class {c}"
+        )
+
+    plt.legend(markerscale=3)
+    plt.title("CNN Feature Embedding (t-SNE)")
+    plt.xlabel("Dim 1")
+    plt.ylabel("Dim 2")
+
+    plt.savefig(out_dir / "cnn_feature_embedding.png", dpi=300)
+    plt.close()

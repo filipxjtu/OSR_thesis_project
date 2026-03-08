@@ -17,7 +17,7 @@
     "C044.crossmode_time_train_vs_eval",
     "C045.crossmode_freq_train_vs_eval"
   ],
-  "created_utc": "2026-03-08T02:46:54.391944+00:00",
+  "created_utc": "2026-03-08T05:29:33.757917+00:00",
   "metrics": {
     "class_balance": {
       "clean": {
@@ -56,9 +56,9 @@
     },
     "cross_mode": {
       "effect_sizes": {
-        "freq_clean_vs_imp_eval": 0.9863785210837995,
-        "freq_clean_vs_imp_train": 6.571146982551105,
-        "freq_imp_train_vs_imp_eval": 0.716869188201753,
+        "freq_clean_vs_imp_eval": 0.9863785210838,
+        "freq_clean_vs_imp_train": 6.571146982551106,
+        "freq_imp_train_vs_imp_eval": 0.7168691882017529,
         "fs_hz": 10000000.0,
         "time_clean_vs_imp_eval": 0.0001762136826183396,
         "time_clean_vs_imp_train": 0.001194466617244932,
@@ -74,7 +74,7 @@
           129,
           36
         ],
-        "std": 3.5675773856121764
+        "std": 3.567577385612176
       },
       "effect_sizes_feat": {
         "clean_vs_eval": 1.7255978212877954,
@@ -105,25 +105,25 @@
     },
     "freq_domain": {
       "clean": {
-        "dc_ratio": 1.2117426282287187e-33,
+        "dc_ratio": 1.2117426282287186e-33,
         "rolloff_95_hz": 3933333.3333333335,
         "spectral_bandwidth_hz": 939021.0286962994,
         "spectral_centroid_hz": 2296554.4174557338,
-        "spectral_flatness": 0.37286193596876843
+        "spectral_flatness": 0.37286193596876904
       },
       "impaired_eval": {
-        "dc_ratio": 6.59267798736457e-06,
+        "dc_ratio": 6.592677987364568e-06,
         "rolloff_95_hz": 3979166.666666667,
-        "spectral_bandwidth_hz": 962308.6483765749,
-        "spectral_centroid_hz": 2354040.8897109614,
-        "spectral_flatness": 0.5039964466384342
+        "spectral_bandwidth_hz": 962308.6483765747,
+        "spectral_centroid_hz": 2354040.889710961,
+        "spectral_flatness": 0.5039964466384341
       },
       "impaired_train": {
-        "dc_ratio": 0.00023304860793870187,
+        "dc_ratio": 0.00023304860793870182,
         "rolloff_95_hz": 4612500.0,
         "spectral_bandwidth_hz": 1296010.1445300388,
         "spectral_centroid_hz": 2447684.1341230976,
-        "spectral_flatness": 0.9567754219847079
+        "spectral_flatness": 0.9567754219847077
       }
     },
     "time_domain": {
@@ -134,7 +134,7 @@
         "min": -5.428613801559703,
         "peak_to_rms": 7.225548797920026,
         "rms": 0.7513081640417963,
-        "skewness": 3.3937092814700875e-05,
+        "skewness": 3.393709281470085e-05,
         "std": 0.7513081640417963
       },
       "impaired_eval": {
@@ -144,7 +144,7 @@
         "min": -5.401507832302658,
         "peak_to_rms": 5.351700286569211,
         "rms": 1.0093068638126925,
-        "skewness": 4.575459252617406e-05,
+        "skewness": 4.575459252617385e-05,
         "std": 1.0093068516362045
       },
       "impaired_train": {

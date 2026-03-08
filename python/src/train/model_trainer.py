@@ -16,16 +16,16 @@ from python.src.train.engine import train_one_epoch, evaluate
 from python.src.train.hparams import HParams
 from python.src.utils.dataloaders import create_train_loader, create_eval_loader
 from python.src.utils.device import resolve_device
-from python.src.analysis.model_diagnostics import generate_confusion_outputs
+from python.src.analysis.model_diagnostics import generate_confusion_outputs, plot_cnn_feature_embedding
 
 from python.src.models.baseline_cnn import BaselineCNN
-#from python.src.models.baseline_cnn import [future models 1]
+from python.src.models.first_residual_cnn import ResidualCNN
 #from python.src.models.baseline_cnn import [future models 2]
 
 
 MODEL_REGISTRY = {
     "baseline_cnn": BaselineCNN,
-    #"future model 1": FutureModel1,
+    "first_residual_cnn": ResidualCNN,
     #"future model 2": FutureModel2,
 }
 
@@ -122,11 +122,12 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
             best_val_acc = val_acc
             best_state = model.state_dict()
 
-        print(
-            f"Epoch {epoch:02d} | "
-            f"Train Loss: {train_loss:.6f} | "
-            f"Val Loss: {val_loss:.6f} | "
-            f"Val Acc: {100 * val_acc:.2f}"
+        if epoch == 1 or epoch % 5 == 0:
+            print(
+                f"Epoch {epoch:02d} | "
+                f"Train Loss: {train_loss:.6f} | "
+                f"Val Loss: {val_loss:.6f} | "
+                f"Val Acc: {100 * val_acc:.2f}"
         )
 
         metrics_log["epochs"].append(
@@ -139,7 +140,7 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
         )
     model.load_state_dict(best_state)
 
-    figures_dir = project_root / "reports" / "figures" / f"model_seed{seed}"
+    figures_dir = project_root / "reports" / "figures" / f"{model_name}_seed{seed}"
 
     generate_confusion_outputs(
         model,
@@ -147,6 +148,14 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
         device,
         figures_dir,
         n_classes=7,
+    )
+
+    plot_cnn_feature_embedding(
+        model,
+        val_loader,
+        device,
+        figures_dir,
+        n_classes=7
     )
 
     ckpt_dir = project_root / "artifacts" / "checkpoints"
@@ -165,5 +174,5 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
 
     print(f"\nModel saved to: {ckpt_path}")
     print(f"Training log saved to: {log_path}")
-    print(f"Confusion matrix and per-class accuracy saved to: {figures_dir}")
+    print(f"Confusion matrix, per-class accuracy and feature embedding saved to: {figures_dir}")
     print(f"\nBest validation accuracy: {100 * best_val_acc:.2f}")

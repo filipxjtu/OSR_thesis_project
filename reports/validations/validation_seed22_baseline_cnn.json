@@ -17,7 +17,7 @@
     "C044.crossmode_time_train_vs_eval",
     "C045.crossmode_freq_train_vs_eval"
   ],
-  "created_utc": "2026-03-08T02:34:02.920005+00:00",
+  "created_utc": "2026-03-08T05:20:44.534330+00:00",
   "metrics": {
     "class_balance": {
       "clean": {
@@ -57,7 +57,7 @@
     "cross_mode": {
       "effect_sizes": {
         "freq_clean_vs_imp_eval": 1.0240609667154021,
-        "freq_clean_vs_imp_train": 8.304531972786847,
+        "freq_clean_vs_imp_train": 8.30453197278685,
         "freq_imp_train_vs_imp_eval": 0.7180110656982299,
         "fs_hz": 10000000.0,
         "time_clean_vs_imp_eval": 0.00020035710324513116,
@@ -112,18 +112,18 @@
         "spectral_flatness": 0.3788865083487509
       },
       "impaired_eval": {
-        "dc_ratio": 8.92680376789409e-06,
+        "dc_ratio": 8.926803767894089e-06,
         "rolloff_95_hz": 3977083.3333333335,
-        "spectral_bandwidth_hz": 967269.5947580412,
-        "spectral_centroid_hz": 2380131.581121087,
-        "spectral_flatness": 0.5143188652656273
+        "spectral_bandwidth_hz": 967269.5947580413,
+        "spectral_centroid_hz": 2380131.5811210866,
+        "spectral_flatness": 0.5143188652656272
       },
       "impaired_train": {
-        "dc_ratio": 0.00029421610146277354,
+        "dc_ratio": 0.0002942161014627735,
         "rolloff_95_hz": 4633333.333333334,
         "spectral_bandwidth_hz": 1308391.4005833128,
         "spectral_centroid_hz": 2460868.2132118237,
-        "spectral_flatness": 0.9647458763095733
+        "spectral_flatness": 0.9647458763095748
       }
     },
     "time_domain": {
@@ -134,7 +134,7 @@
         "min": -5.499005695953219,
         "peak_to_rms": 7.905610947069506,
         "rms": 0.7500553806424747,
-        "skewness": 9.383527365286666e-05,
+        "skewness": 9.383527365286657e-05,
         "std": 0.7500553806424747
       },
       "impaired_eval": {
@@ -144,7 +144,7 @@
         "min": -5.320235309348913,
         "peak_to_rms": 5.265142812303335,
         "rms": 1.0104636282451525,
-        "skewness": 0.0001458713121239466,
+        "skewness": 0.00014587131212394672,
         "std": 1.0104636125169268
       },
       "impaired_train": {
