@@ -29,6 +29,7 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
     % Inject seed
     spec_local = spec;
     spec_local.dataset_seed = int32(dataset_seed);
+    version = spec_local.spec_version;
 
     % Ensure folders exist
     if ~exist('artifacts','dir'); mkdir('artifacts'); end
@@ -45,8 +46,8 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
     impaired_data = impaired.generate_impaired_dataset(clean_dataset, spec_local, mode);
 
     % Save artifact
-    filename = sprintf('impaired_dataset_v1_seed%d_%s.mat', ...
-                        dataset_seed, mode);
+    filename = sprintf('impaired_dataset_%s_seed%d_n%d_%s.mat', ...
+                        version, dataset_seed, n_per_class, mode);
     output_dir = fullfile('artifacts','datasets','impaired');
     save(fullfile(output_dir, filename), 'impaired_data', '-v7.3');
 

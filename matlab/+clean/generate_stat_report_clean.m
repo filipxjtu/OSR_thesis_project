@@ -29,13 +29,16 @@ function generate_stat_report_clean(dataset)
     report = clean.report_clean_dataset_v1(dataset);
 
     % Prepare file
-    filename = sprintf('clean_dataset_v1_seed%d_statistical_report.md', seed);
+    filename = sprintf( ...
+        'clean_dataset_%s_seed%d_n%d_statistical_report.md', ...
+        spec_version, seed, n_per_class);
+    
     intended_dir = fullfile('reports','statistical');
     fid = fopen(fullfile(intended_dir, filename), 'w');
 
     fprintf(fid, '# Clean Dataset Artifact Report (Mathematical Summary)\n');
     fprintf(fid, 'Version: %s  \n', spec_version);
-    fprintf(fid, 'Artifact: clean_dataset_v1_seed%d.mat  \n\n', seed);
+    fprintf(fid, 'Artifact: clean_dataset_%s_seed%d.mat  \n\n',spec_version, seed);
     
     % Specification Section
     fprintf(fid, '---\n\n');

@@ -22,6 +22,7 @@ function dataset = run_clean_pipeline(spec, n_per_class, dataset_seed)
     % Inject seed (do NOT mutate original spec)
     spec_local = spec;
     spec_local.dataset_seed = int32(dataset_seed);
+    version = spec_local.spec_version;
 
     % Ensure folders exist
     if ~exist('artifacts','dir'); mkdir('artifacts'); end
@@ -34,7 +35,9 @@ function dataset = run_clean_pipeline(spec, n_per_class, dataset_seed)
     dataset = clean.generate_clean_dataset(n_per_class, spec_local);
 
     % Save artifact
-    filename = sprintf('clean_dataset_v1_seed%d.mat', dataset_seed);
+    filename = sprintf( ...
+        'clean_dataset_%s_seed%d_n%d.mat', ...
+        version, dataset_seed, n_per_class);
     output_dir = fullfile('artifacts', 'datasets','clean');
     save(fullfile(output_dir, filename), 'dataset', '-v7.3');
 

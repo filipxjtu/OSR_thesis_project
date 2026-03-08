@@ -14,21 +14,25 @@ function generate_stat_report_impaired(impaired_dataset)
     mode = meta.mode;
     N = meta.N;  % Add this line
     Ns = meta.Ns;
+    n_per_class = meta.n_per_class;
+    spec_version = meta.spec_version;
     
     
     % Get report data using existing reporter
     report = impaired.report_impaired_dataset_v1(impaired_dataset);
     
     % Create filename
-    filename = sprintf('impaired_dataset_v1_seed%d_%s_report.md', seed, mode);
+    filename = sprintf('impaired_dataset_%s_seed%d_n%d_%s_report.md', ...
+        spec_version, seed, n_per_class, mode);
     intended_dir = fullfile('reports','statistical');
     fid = fopen(fullfile(intended_dir, filename), 'w');
     
     % Write header
     fprintf(fid, '# Impaired Dataset Artifact Report\n');
-    fprintf(fid, 'Version: impaired_dataset_v1  \n');
+    fprintf(fid, 'Version: impaired_dataset_%s  \n', spec_version);
     fprintf(fid, 'Mode: %s  \n', mode);
-    fprintf(fid, 'Artifact: impaired_dataset_v1_seed%d_%s.mat  \n\n', seed, mode);
+    fprintf(fid, 'Artifact: impaired_dataset_%s_seed%d_n%d_%s.mat  \n\n', ...
+        spec_version, seed, n_per_class , mode);
     
     % Dataset specs
     fprintf(fid, '---\n\n');
