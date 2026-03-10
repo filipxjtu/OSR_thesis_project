@@ -17,10 +17,13 @@ def main():
 
     project_root = find_project_root()
 
-    seeds = [22, 42, 121]
+    spec_version = "v1"
+    seeds = [45]
+    n_per_class = [200]
 
     for seed in seeds:
-        generate_dataset_figures(seed, project_root)
+        for n in n_per_class:
+            generate_dataset_figures(seed, n, project_root, spec_version)
 
 
 if __name__ == "__main__":

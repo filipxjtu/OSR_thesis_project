@@ -30,25 +30,30 @@ MODEL_REGISTRY = {
 }
 
 
-def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn"):
+def train_model(seed: int,
+                project_root: Path,
+                model_name: str,
+                n_per_class: int,
+                spec_version: str = "v1"
+                ):
 
     if model_name not in MODEL_REGISTRY:
         raise ValueError(f"Model {model_name} is not supported.")
 
     dataset_dir = project_root / "artifacts" / "datasets"
 
-    clean_file = dataset_dir / "clean" / f"clean_dataset_v1_seed{seed}.mat"
-    train_file = dataset_dir / "impaired" / f"impaired_dataset_v1_seed{seed}_train.mat"
-    eval_file = dataset_dir / "impaired" / f"impaired_dataset_v1_seed{seed}_eval.mat"
+    clean_file = dataset_dir / "clean" / f"clean_dataset_{spec_version}_seed{seed}_n{n_per_class}.mat"
+    train_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_train.mat"
+    eval_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_eval.mat"
 
-    report_name = f"validation_seed{seed}_{model_name}.json"
+    report_name = f"validation_seed{seed}_n{n_per_class}_{model_name}.json"
 
     try:
         run_validation_gate(
             clean_file=str(clean_file),
             train_file=str(train_file),
             eval_file=str(eval_file),
-            spec_version="v1",
+            spec_version=spec_version,
             n_classes=7,
             report_name=report_name,
         )
@@ -140,7 +145,7 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
         )
     model.load_state_dict(best_state)
 
-    figures_dir = project_root / "reports" / "figures" / f"{model_name}_seed{seed}"
+    figures_dir = project_root / "reports" / "figures" / f"{model_name}_seed{seed}_n{n_per_class}"
 
     generate_confusion_outputs(
         model,
@@ -161,13 +166,13 @@ def train_model(seed: int, project_root: Path, model_name: str = "baseline_cnn")
     ckpt_dir = project_root / "artifacts" / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    ckpt_path = ckpt_dir / f"{model_name}_seed{seed}.pt"
+    ckpt_path = ckpt_dir / f"{model_name}_seed{seed}_n{n_per_class}.pt"
     torch.save(best_state, ckpt_path)
 
     log_dir = project_root / "artifacts" / "logs" / "training"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    log_path = log_dir / f"{model_name}_training_seed{seed}.json"
+    log_path = log_dir / f"{model_name}_training_seed{seed}_n{n_per_class}.json"
 
     with log_path.open("w", encoding="utf-8") as f:
         json.dump(metrics_log, f, indent=2)

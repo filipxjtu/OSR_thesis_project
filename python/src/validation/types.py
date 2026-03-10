@@ -25,8 +25,7 @@ class DatasetView(Protocol):
     # Labels: shape (N_samples,)
     def y(self) -> npt.NDArray[np.integer]: ...
 
-    # Optional: feature tensor already computed (e.g., STFT log-mag)
-    # shape example: (N_samples, C, F, T) or (N_samples, F, T)
+    # Optional: feature tensor e.g., (N_samples, C, F, T) or (N_samples, F, T)
     def x_feat(self) -> Any | None: ...
 
     # Metadata dict (must include spec_version, mode, etc.)

@@ -134,15 +134,15 @@ def plot_tsne_embedding(X_feat, y, out_dir: Path):
     plt.close()
 
 
-def generate_dataset_figures(seed: int, project_root: Path):
+def generate_dataset_figures(seed: int, n_per_class: int, project_root: Path, spec_version: str = "v1"):
 
     dataset_dir = project_root / "artifacts" / "datasets"
-    fig_dir = project_root / "reports" / "figures" / f"dataset_seed{seed}"
+    fig_dir = project_root / "reports" / "figures" / f"dataset_seed{seed}_n{n_per_class}"
 
     _ensure_dir(fig_dir)
 
     #clean_file = dataset_dir / "clean" / f"clean_dataset_v1_seed{seed}.mat"
-    train_file = dataset_dir / "impaired" / f"impaired_dataset_v1_seed{seed}_train.mat"
+    train_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_train.mat"
 
     #clean_artifact = load_artifact(str(clean_file))
     train_artifact = load_artifact(str(train_file))

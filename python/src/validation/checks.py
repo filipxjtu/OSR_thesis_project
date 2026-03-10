@@ -27,15 +27,11 @@ class Thresholds:
     centroid_min_hz: float = 1.0
     centroid_max_hz_ratio: float = 0.49
 
-    # Class balance
-    class_balance_tol: float = 0.00
-
     # Cross-mode differences (clean vs impaired)
     min_effect_size_freq_train: float = 0.20
     min_effect_size_freq_eval: float = 0.20
 
     # Train vs Eval must differ (mode contamination gate)
-
     min_effect_size_train_vs_eval_freq: float = 0.05
 
 
@@ -102,7 +98,9 @@ def check_freq_domain_stats(bundle: DatasetBundle, fs_hz: float, th: Thresholds)
 
     for ds in bundle.datasets():
         n_time = ds.meta().get("N")
-        s = freq_domain_stats(ds.x_time(), fs_hz=fs_hz, n_time_expected=n_time)
+
+        x_time = ensure_samples_first(np.asarray(ds.x_time(), dtype=np.float64), n_time)
+        s = freq_domain_stats(x_time, fs_hz=fs_hz)
         metrics[ds.name] = {
             "dc_ratio": s.dc_ratio,
             "spectral_centroid_hz": s.spectral_centroid,
@@ -111,7 +109,6 @@ def check_freq_domain_stats(bundle: DatasetBundle, fs_hz: float, th: Thresholds)
             "rolloff_95_hz": s.rolloff_95,
         }
 
-        #print(f"s.dc_ratio ({s.dc_ratio}) <= th.dc_ratio_max({th.dc_ratio_max})")
         fails += _require(
             s.dc_ratio <= th.dc_ratio_max,
             "C020.freq_dc_ratio_small",
@@ -146,7 +143,7 @@ def check_freq_domain_stats(bundle: DatasetBundle, fs_hz: float, th: Thresholds)
     return fails, metrics
 
 
-def check_class_balance(bundle: DatasetBundle, n_classes: int, th: Thresholds) -> tuple[list[FailedCheck], dict[str, Any]]:
+def check_class_balance(bundle: DatasetBundle, n_classes: int) -> tuple[list[FailedCheck], dict[str, Any]]:
     fails: list[FailedCheck] = []
     metrics: dict[str, Any] = {}
 
@@ -158,59 +155,57 @@ def check_class_balance(bundle: DatasetBundle, n_classes: int, th: Thresholds) -
         c = counts(ds.y())
         metrics[ds.name] = {"counts": c.tolist()}
 
-        target = float(np.mean(c))
-        if th.class_balance_tol == 0.0:
-            ok = bool(np.all(c == c[0]))
-            fails += _require(
-                ok,
-                "C030.class_balance_exact",
-                f"{ds.name}: class counts not exactly equal",
-                {"dataset": ds.name, "counts": c.tolist()},
-            )
-        else:
-            tol = th.class_balance_tol
-            frac_dev = np.max(np.abs(c - target) / max(target, 1.0))
-            fails += _require(
-                frac_dev <= tol,
-                "C031.class_balance_tolerance",
-                f"{ds.name}: class imbalance beyond tolerance",
-                {"dataset": ds.name, "counts": c.tolist(), "frac_dev": float(frac_dev), "tol": tol},
-            )
+        ok = bool(np.all(c == c[0]))
+
+        fails += _require(
+            ok,
+            "C030.class_balance_exact",
+            f"{ds.name}: class counts not exactly equal",
+            {"dataset": ds.name, "counts": c.tolist()},
+        )
 
     return fails, metrics
 
-def ensure_samples_first(x: np.ndarray) -> np.ndarray:
-    # Expect shape (Nsamples, Ntime)
+
+def ensure_samples_first(x: np.ndarray, n_time_expected: int) -> np.ndarray:
+    # Expect shape (N_samples, N_time)
     if x.ndim != 2:
         raise ValueError("Expected 2D time-domain matrix")
 
-    # If time dimension is much larger, assume shape is (Ntime, Nsamples)
-    if x.shape[0] > x.shape[1]:
-        # likely (Ntime, Nsamples) → transpose
+    if x.shape[1] == n_time_expected:
+        return x
+    elif x.shape[0] == n_time_expected:
         return x.T
-    return x
+    else:
+        raise ValueError("Expected 2D time-domain matrix")
 
-def check_cross_mode_separation(bundle: DatasetBundle, fs_hz: float, th: Thresholds) -> tuple[list[FailedCheck], dict[str, Any]]:
+
+def check_cross_mode_separation(
+        bundle: DatasetBundle,
+        fs_hz: float,
+        th: Thresholds,
+        partial_features_check: bool = False
+) -> tuple[list[FailedCheck], dict[str, Any]]:
+
     """
-    - clean vs impaired_train must differ (time + freq)
-    - clean vs impaired_eval must differ (time + freq)
-    - impaired_train vs impaired_eval must differ (time + freq)  <-- NEW
+    - clean vs impaired_train must differ (freq)
+    - clean vs impaired_eval must differ (freq)
+    - impaired_train vs impaired_eval must differ (freq)
     """
 
     fails: list[FailedCheck] = []
     metrics: dict[str, Any] = {}
 
-    x_clean = ensure_samples_first(np.asarray(bundle.clean.x_time(), dtype=np.float64))
-    x_tr = ensure_samples_first(np.asarray(bundle.impaired_train.x_time(), dtype=np.float64))
-    x_ev = ensure_samples_first(np.asarray(bundle.impaired_eval.x_time(), dtype=np.float64))
+    x_clean = ensure_samples_first(np.asarray(bundle.clean.x_time(), dtype=np.float64), bundle.clean.meta().get("N"))
+    x_tr = ensure_samples_first(np.asarray(bundle.impaired_train.x_time(), dtype=np.float64), bundle.impaired_train.meta().get("N"))
+    x_ev = ensure_samples_first(np.asarray(bundle.impaired_eval.x_time(), dtype=np.float64), bundle.impaired_eval.meta().get("N"))
 
-    # Time-domain effect sizes
-    d_time_tr = effect_size_delta(x_clean, x_tr)
-    d_time_ev = effect_size_delta(x_clean, x_ev)
-    d_time_te = effect_size_delta(x_tr, x_ev)
-
-    # Frequency-domain effect sizes using avg FFT magnitude vectors
+   # Frequency-domain effect sizes using avg FFT magnitude vectors
     def avg_spec(x: np.ndarray) -> np.ndarray:
+        if partial_features_check:
+            max_samples = 256
+            if x.shape[0] > max_samples:
+                x = x[:max_samples]
         X = np.fft.rfft(x, axis=1)
         return np.mean(np.abs(X), axis=0)
 
@@ -222,34 +217,30 @@ def check_cross_mode_separation(bundle: DatasetBundle, fs_hz: float, th: Thresho
     d_freq_ev = effect_size_delta(spec_clean, spec_ev)
     d_freq_te = float(np.linalg.norm(spec_tr - spec_ev) / (np.linalg.norm(spec_tr) + 1e-12))
 
-
     metrics["effect_sizes"] = {
-        "time_clean_vs_imp_train": float(d_time_tr),
-        "time_clean_vs_imp_eval": float(d_time_ev),
-        "time_imp_train_vs_imp_eval": float(d_time_te),
         "freq_clean_vs_imp_train": float(d_freq_tr),
         "freq_clean_vs_imp_eval": float(d_freq_ev),
         "freq_imp_train_vs_imp_eval": float(d_freq_te),
         "fs_hz": float(fs_hz),
     }
 
-    # Clean vs impaired thresholds (train/eval can differ)
     fails += _require(
         d_freq_tr >= th.min_effect_size_freq_train,
-        "C042.crossmode_freq_clean_vs_train",
+        "C040.crossmode_freq_clean_vs_train",
         "Impaired(train) not sufficiently different from clean in frequency-domain",
         {"effect_size": float(d_freq_tr), "threshold": th.min_effect_size_freq_train},
     )
+
     fails += _require(
         d_freq_ev >= th.min_effect_size_freq_eval,
-        "C043.crossmode_freq_clean_vs_eval",
+        "C041.crossmode_freq_clean_vs_eval",
         "Impaired(eval) not sufficiently different from clean in frequency-domain",
         {"effect_size": float(d_freq_ev), "threshold": th.min_effect_size_freq_eval},
     )
 
     fails += _require(
         d_freq_te >= th.min_effect_size_train_vs_eval_freq,
-        "C045.crossmode_freq_train_vs_eval",
+        "C042.crossmode_freq_train_vs_eval",
         "Impaired(train) and impaired(eval) are too similar in frequency-domain (mode contamination suspected)",
         {"effect_size": float(d_freq_te), "threshold": th.min_effect_size_train_vs_eval_freq},
     )

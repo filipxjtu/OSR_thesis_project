@@ -10,11 +10,9 @@ class FailedCheck:
     message: str
     details: dict[str, Any]
 
-
 class ValidationError(RuntimeError):
     """
     Raised when one or more mandatory sanity checks fail.
-    Carries structured failures for thesis-grade reporting.
     """
 
     def __init__(self, failures: list[FailedCheck]) -> None:

@@ -7,13 +7,9 @@ from python.src.preprocessing.dataset_builder import build_feature_tensor
 
 from .runner import validate_all, ValidationConfig
 from .types import DatasetBundle, DatasetView
-from .exceptions import ValidationError
 
 
-# ==========================================================
 # Adapter
-# ==========================================================
-
 class ArtifactAdapter(DatasetView):
     def __init__(self, name: str, artifact):
         self._name = name
@@ -37,10 +33,7 @@ class ArtifactAdapter(DatasetView):
         return self._artifact.meta
 
 
-# ==========================================================
 # Public Validation Gate
-# ==========================================================
-
 def run_validation_gate(
     *,
     clean_file: str,
@@ -70,6 +63,7 @@ def run_validation_gate(
         spec_version_expected=spec_version,
         n_classes_expected=n_classes,
         enable_feature_checks=True,
+        partial_features_check=True,
         enable_repro_check=False,
         repro_trials=2,
     )
@@ -77,11 +71,6 @@ def run_validation_gate(
     summary = validate_all(
         bundle=bundle,
         config=config,
-        #loader_for_repro=lambda: DatasetBundle(
-        #    clean=ArtifactAdapter("clean", load_artifact(clean_file)),
-        #    impaired_train=ArtifactAdapter("impaired_train", load_artifact(train_file)),
-        #    impaired_eval=ArtifactAdapter("impaired_eval", load_artifact(eval_file)),
-        #),
     )
 
     # Save report

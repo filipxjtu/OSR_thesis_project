@@ -52,9 +52,9 @@ def debug_preprocessing(name, artifact):
 
 ###################################################################################################################
 
-artifact  = load_artifact("clean_dataset_v1_seed49.mat")
-artifact1 = load_artifact("impaired_dataset_v1_seed49_train.mat")
-artifact2 = load_artifact("impaired_dataset_v1_seed49_eval.mat")
+artifact  = load_artifact("clean_dataset_v1_seed10_n400.mat")
+artifact1 = load_artifact("impaired_dataset_v1_seed10_n400_train.mat")
+artifact2 = load_artifact("impaired_dataset_v1_seed10_n400_eval.mat")
 
 # Run checks
 debug_preprocessing("Impaired Train", artifact1)

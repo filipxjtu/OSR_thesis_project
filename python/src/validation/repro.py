@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Any
 
-import numpy as np
-
 from .exceptions import FailedCheck
 from .stats import stable_digest
 from .types import DatasetBundle
@@ -40,16 +38,16 @@ def _mode_digest(
     ds = getattr(bundle, mode_name)
 
     # time/freq stats dicts are nested by ds.name; extract only this ds
-    _, tmet = check_time_domain_stats(bundle, th)
-    _, fmet = check_freq_domain_stats(bundle, fs_hz, th)
-    _, cmet = check_class_balance(bundle, n_classes, th)
+    _, t_met = check_time_domain_stats(bundle, th)
+    _, f_met = check_freq_domain_stats(bundle, fs_hz, th)
+    _, c_met = check_class_balance(bundle, n_classes)
 
     flat: dict[str, float] = {}
 
-    _flatten_selected_scalars(tmet.get(ds.name, {}), f"time.{ds.name}", flat)
-    _flatten_selected_scalars(fmet.get(ds.name, {}), f"freq.{ds.name}", flat)
+    _flatten_selected_scalars(t_met.get(ds.name, {}), f"time.{ds.name}", flat)
+    _flatten_selected_scalars(f_met.get(ds.name, {}), f"freq.{ds.name}", flat)
 
-    counts = cmet.get(ds.name, {}).get("counts", [])
+    counts = c_met.get(ds.name, {}).get("counts", [])
     if counts:
         flat[f"class.{ds.name}.total"] = float(sum(counts))
         flat[f"class.{ds.name}.min"] = float(min(counts))
@@ -71,9 +69,7 @@ def _bundle_digest(
     flat: dict[str, float] = {}
     _flatten_selected_scalars(smet, "sep", flat)
 
-    # Incorporate per-mode digests as numeric values by hashing them into floats? No.
-    # Instead incorporate the digest strings directly by hashing into one final string.
-    # stable_digest only accepts floats, so do final hashing on concatenated strings here.
+    #Incorporate the digest strings directly by hashing into one final string. (only floats are accepted)
     import hashlib
 
     d_clean = _mode_digest(bundle, "clean", fs_hz, n_classes, th)
@@ -125,4 +121,5 @@ def check_reproducibility(
         )
 
     metrics = {"records": records, "identical": identical, "trials": rc.trials}
+
     return fails, metrics

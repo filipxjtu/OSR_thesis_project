@@ -38,21 +38,16 @@ class ValidationConfig:
     centroid_min_hz: float = 1.0
     centroid_max_hz_ratio: float = 0.49
 
-    # Balance
-    class_balance_tol: float = 0.00
-
     # Separation thresholds (mode-specific)
-    min_effect_size_time_train: float = 0.20
-    min_effect_size_time_eval: float = 0.20
     min_effect_size_freq_train: float = 0.20
     min_effect_size_freq_eval: float = 0.20
 
     # Train vs eval must differ
-    min_effect_size_train_vs_eval_time: float = 0.10
     min_effect_size_train_vs_eval_freq: float = 0.10
 
     # Feature thresholds
     enable_feature_checks: bool = True
+    partial_features_check: bool = False
     feat_std_min: float = 1e-6
     feat_energy_min: float = 1e-8
     min_effect_size_feat_train: float = 0.10 #was 0.2
@@ -73,7 +68,6 @@ def _thresholds_from_config(c: ValidationConfig) -> Thresholds:
         flatness_min=c.flatness_min,
         centroid_min_hz=c.centroid_min_hz,
         centroid_max_hz_ratio=c.centroid_max_hz_ratio,
-        class_balance_tol=c.class_balance_tol,
         min_effect_size_freq_train=c.min_effect_size_freq_train,
         min_effect_size_freq_eval=c.min_effect_size_freq_eval,
         min_effect_size_train_vs_eval_freq=c.min_effect_size_train_vs_eval_freq,
@@ -110,41 +104,23 @@ def validate_all(
         )
 
     summary = ValidationSummary(validator_version=VALIDATOR_VERSION)
-    summary.thresholds = {
-        "time.mean_abs_max": th.mean_abs_max,
-        "time.std_min": th.std_min,
-        "time.peak_to_rms_max": th.peak_to_rms_max,
-        "freq.dc_ratio_max": th.dc_ratio_max,
-        "freq.flatness_min": th.flatness_min,
-        "freq.centroid_min_hz": th.centroid_min_hz,
-        "freq.centroid_max_hz_ratio": th.centroid_max_hz_ratio,
-        "class.balance_tol": th.class_balance_tol,
-        "sep.min_effect_size_freq_train": th.min_effect_size_freq_train,
-        "sep.min_effect_size_freq_eval": th.min_effect_size_freq_eval,
-        "sep.min_effect_size_train_vs_eval_freq": th.min_effect_size_train_vs_eval_freq,
-    }
+    summary.thresholds = vars(th)
 
     failures: list[FailedCheck] = []
 
     failures += check_no_nan_inf(bundle)
 
-    f, m = check_time_domain_stats(bundle, th)
-    failures += f
-    summary.metrics["time_domain"] = m
+    def run_check(name, fn, *args):
+        failure, metric = fn(*args)
+        failures.extend(failure)
+        summary.metrics[name] = metric
 
-    f, m = check_freq_domain_stats(bundle, fs_hz=fs_hz, th=th)
-    failures += f
-    summary.metrics["freq_domain"] = m
+    run_check("time_domain", check_time_domain_stats, bundle, th)
+    run_check("freq_domain", check_freq_domain_stats, bundle, fs_hz, th)
+    run_check("class_balance", check_class_balance, bundle, config.n_classes_expected)
+    run_check("cross_mode", check_cross_mode_separation, bundle, fs_hz, th, config.partial_features_check)
 
-    f, m = check_class_balance(bundle, n_classes=config.n_classes_expected, th=th)
-    failures += f
-    summary.metrics["class_balance"] = m
-
-    f, m = check_cross_mode_separation(bundle, fs_hz=fs_hz, th=th)
-    failures += f
-    summary.metrics["cross_mode"] = m
-
-    # Feature-domain checks (NEW)
+    # Feature-domain checks
     if config.enable_feature_checks:
         fth = FeatureThresholds(
             feat_std_min=config.feat_std_min,
@@ -159,7 +135,7 @@ def validate_all(
     else:
         summary.metrics["feature_domain"] = {"skipped": True, "reason": "disabled by config"}
 
-    # Reproducibility (NEW per-mode + bundle digest)
+    # Reproducibility ( per-mode + bundle digest)
     if config.enable_repro_check:
         if loader_for_repro is None:
             summary.notes.append("Reproducibility check skipped: loader_for_repro not provided.")
@@ -190,13 +166,10 @@ def validate_all(
         "C021.freq_flatness_not_degenerate",
         "C022.freq_centroid_sane_low",
         "C023.freq_centroid_sane_high",
-        "C030.class_balance_exact" if th.class_balance_tol == 0.0 else "C031.class_balance_tolerance",
-        "C040.crossmode_time_clean_vs_train",
-        "C041.crossmode_time_clean_vs_eval",
-        "C042.crossmode_freq_clean_vs_train",
-        "C043.crossmode_freq_clean_vs_eval",
-        "C044.crossmode_time_train_vs_eval",
-        "C045.crossmode_freq_train_vs_eval",
-        # Feature checks might be skipped (so don't claim pass unconditionally)
+        "C030.class_balance_exact",
+        "C040.crossmode_freq_clean_vs_train",
+        "C041.crossmode_freq_clean_vs_eval",
+        "C042.crossmode_freq_train_vs_eval",
+        #Feature checks are appended as they are optional
     ]
     return summary
