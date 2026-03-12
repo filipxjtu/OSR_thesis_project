@@ -6,14 +6,19 @@ from typing import Callable, Any
 from .exceptions import FailedCheck
 from .stats import stable_digest
 from .types import DatasetBundle
-from .checks import Thresholds, check_time_domain_stats, check_freq_domain_stats, check_class_balance, check_cross_mode_separation
+from .checks import (
+    Thresholds,
+    check_time_domain_stats,
+    check_freq_domain_stats,
+    check_class_balance,
+    check_cross_mode_separation,
+)
 
 
 @dataclass(frozen=True)
 class ReproConfig:
     trials: int = 2
     require_identical_digest: bool = True
-
 
 def _flatten_selected_scalars(obj: dict[str, Any], prefix: str, out: dict[str, float]) -> None:
     for k, v in obj.items():

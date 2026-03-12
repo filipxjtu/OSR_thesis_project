@@ -6,11 +6,7 @@ from typing import Any
 import numpy as np
 
 from .exceptions import FailedCheck
-from .stats import (
-    time_domain_stats,
-    freq_domain_stats,
-    effect_size_delta,
-)
+from .stats import time_domain_stats, freq_domain_stats, effect_size_delta
 from .types import DatasetBundle
 
 
@@ -184,7 +180,7 @@ def check_cross_mode_separation(
         bundle: DatasetBundle,
         fs_hz: float,
         th: Thresholds,
-        partial_features_check: bool = False
+        partial_features_check: bool
 ) -> tuple[list[FailedCheck], dict[str, Any]]:
 
     """
@@ -202,6 +198,7 @@ def check_cross_mode_separation(
 
    # Frequency-domain effect sizes using avg FFT magnitude vectors
     def avg_spec(x: np.ndarray) -> np.ndarray:
+
         if partial_features_check:
             max_samples = 256
             if x.shape[0] > max_samples:

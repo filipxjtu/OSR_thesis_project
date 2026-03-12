@@ -2,30 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
-
+import torch
 
 @dataclass(slots=True)
 class HParams:
-    """
-    Centralized training hyperparameter definition.
 
-    This object must be passed explicitly.
-    No hidden globals allowed.
-    """
-
-    # Optimization
+    # optimization
     lr: float = 1e-3
     weight_decay: float = 0.0
 
-    # Training control
+    # training control
     epochs: int = 20
     batch_size: int = 32
 
-    # Device
-    device: str = "cpu"  # "cpu" or "cuda"
+    # device
+    device: str = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Logging
+    # logging
     log_interval: int = 10
 
-    # Optional reproducibility seed
+    # optional reproducibility seed
     seed: Optional[int] = None

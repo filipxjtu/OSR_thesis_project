@@ -12,27 +12,24 @@ def build_feature_tensor(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Converts validated artifact into model-ready tensor.
-    Output:
-        X: (Ns, 1, F, T)
-        y: (Ns,)
+    Output:      X: (Ns, 1, F, T)
+                 y: (Ns,).
     """
 
-    X_raw = artifact.X
+    x_raw = artifact.X
     y = artifact.y.reshape(-1)
-
-    Ns = X_raw.shape[1]
+    Ns = x_raw.shape[1]
 
     features = []
-
     for i in range(Ns):
-        signal = X_raw[:, i]
-        S = compute_stft(signal, fs=int(artifact.meta["fs"]))
-        features.append(S)
+        signal = x_raw[:, i]
+        s = compute_stft(signal)
+        features.append(s)
 
-    X_feat = np.stack(features, axis=0)  # (Ns, F, T)
-    X_feat = X_feat[:, None, :, :]       # add channel dim
+    x_feat = np.stack(features, axis=0)  # (Ns, F, T)
+    x_feat = x_feat[:, None, :, :]       # (Ns, 1, F, T)
 
-    X_tensor = torch.tensor(X_feat, dtype=torch.float32)
+    x_tensor = torch.tensor(x_feat, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.long)
 
-    return X_tensor, y_tensor
+    return x_tensor, y_tensor

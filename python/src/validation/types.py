@@ -11,10 +11,8 @@ ArrayF = npt.NDArray[np.floating]
 
 
 class DatasetView(Protocol):
-    """
-    Abstract view used by the validator.
-    You can adapt your existing data structures to this without changing data.
-    """
+
+    """ Abstract view used by the validator """
 
     @property
     def name(self) -> str: ...

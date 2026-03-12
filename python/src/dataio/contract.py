@@ -13,31 +13,26 @@ from .exceptions import (
     MultipleRootError,
     NumericDomainError,
     RootNotFoundError,
-    ShapeMismatchError, AlignmentError,
+    ShapeMismatchError,
+    AlignmentError,
 )
 
 from .dataset_artifact import DatasetArtifact
 
 
-# Matlab v7.3 helpers
-# ============================================================
-
 def _is_hdf5_ref(ds: h5py.Dataset) -> bool:
     return ds.dtype == h5py.ref_dtype
-
 
 def _follow_ref(f: h5py.File, ref: h5py.Reference) -> Any:
     if not ref:
         return None
     return f[ref]
 
-
 def _read_matlab_struct(f: h5py.File, grp: h5py.Group) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k in grp.keys():
         out[k] = _read_matlab_value(f, grp[k])
     return out
-
 
 def _read_matlab_cell(f: h5py.File, ds: h5py.Dataset) -> list[Any]:
     data = ds[()]
@@ -48,17 +43,12 @@ def _read_matlab_cell(f: h5py.File, ds: h5py.Dataset) -> list[Any]:
         out.append(_read_matlab_value(f, target))
     return out
 
-
 def _read_dataset_value(ds: h5py.Dataset) -> Any:
     arr = ds[()]
 
     if isinstance(arr, np.ndarray):
-
-        # MATLAB char array (uint16)
         if arr.dtype == np.uint16:
             return "".join(chr(int(c)) for c in arr.flatten()).rstrip("\x00")
-
-        # scalar numeric
         if arr.size == 1:
             return arr.item()
 
@@ -87,11 +77,8 @@ def _read_matlab_value(f: h5py.File, obj: Any) -> Any:
 
             if all(isinstance(v, str) for v in values):
                 return "".join(values)
-
             return values
-
         return _read_dataset_value(obj)
-
     return obj
 
 
@@ -113,14 +100,11 @@ def _detect_root(f: h5py.File) -> str:
     return candidates[0]
 
 
-# Simple checksum
-# ============================================================
-
 def compute_simple64_checksum(x_raw: np.ndarray, y_raw: np.ndarray, N: int, Ns: int) -> int:
     x_raw = np.asarray(x_raw)
     y_raw = np.asarray(y_raw)
 
-    # --- Match MATLAB X(:)
+    # match matlab X(:)
     if x_raw.shape == (N, Ns):
         x_flat = x_raw.ravel(order="F")
     elif x_raw.shape == (Ns, N):
@@ -128,7 +112,7 @@ def compute_simple64_checksum(x_raw: np.ndarray, y_raw: np.ndarray, N: int, Ns: 
     else:
         raise AlignmentError(f"Unexpected X shape for hashing: {x_raw.shape}")
 
-    # --- Match MATLAB double(y(:))
+    # match matlab double(y(:))
     if y_raw.shape == (Ns, 1):
         y_flat = y_raw.ravel(order="F")
     elif y_raw.shape == (1, Ns):
@@ -138,37 +122,32 @@ def compute_simple64_checksum(x_raw: np.ndarray, y_raw: np.ndarray, N: int, Ns: 
     else:
         raise AlignmentError(f"Unexpected y shape for hashing: {y_raw.shape}")
 
-    # IMPORTANT: MATLAB converts y to double before hashing
     y_flat = y_flat.astype(np.float64, copy=False)
 
-    # Ensure X is float64
     if x_flat.dtype != np.float64:
         x_flat = x_flat.astype(np.float64, copy=False)
 
-    # Concatenate exactly like MATLAB
+    # concatenate like in matlab
     data = np.concatenate([x_flat, y_flat])
 
-    # View as raw bytes
+    # view as raw bytes
     bytes_ = data.view(np.uint8)
 
-    # Accumulate
+    # vectorized accumulation
     h = np.uint64(14695981039346656037)
-    for b in bytes_:
-        h = np.uint64(h + np.uint64(b))
+    h = np.uint64(h + np.sum(bytes_, dtype=np.uint64))
 
     return int(h)
 
 
 # Validate
-# ============================================================
-
 def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
 
     root = _detect_root(f)
     root_grp = _read_root_group(f, root)
     root_dict = _read_matlab_struct(f, root_grp)
 
-    # Required fields
+    # required fields
     if root == "dataset":
         required = ["X_clean", "y", "params", "meta"]
         x_name = "X_clean"
@@ -180,7 +159,7 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
         if r not in root_dict:
             raise MissingFieldError(f"{path}: missing field '{r}' in root '{root}'")
 
-    # Extract arrays (keep row for checksum)
+    # extract arrays (keep row for checksum)
     x_raw = np.asarray(root_dict[x_name])
     y_raw = np.asarray(root_dict["y"])
 
@@ -195,7 +174,7 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
         raise MetadataError(f"{path}: meta must be a struct/dict.")
     meta: dict[str, Any] = meta_raw
 
-    # Normalize orientation (no blind transpose)
+    # normalize orientation
     N_meta = int(meta["N"])
     Ns_meta = int(meta["Ns"])
 
@@ -206,7 +185,7 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
     if y.shape == (1, Ns_meta):
         y = y.T
 
-    # Shape validation
+    # shape validation
     if x.shape != (N_meta, Ns_meta):
         raise ShapeMismatchError(
             f"{path}: X shape mismatch. expected {(N_meta, Ns_meta)}, got {x.shape}"
@@ -217,18 +196,18 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
             f"{path}: y shape mismatch. expected {(Ns_meta, 1)}, got {y.shape}"
         )
 
-    # Dtype validation
+    # dtype validation
     if x.dtype != np.float64:
         raise DtypeMismatchError(f"{path}: X must be float64, got {x.dtype}")
 
     if y.dtype != np.int32:
         raise DtypeMismatchError(f"{path}: y must be int32, got {y.dtype}")
 
-    # Numeric validation
+    # numeric validation
     if not np.isfinite(x).all():
         raise NumericDomainError(f"{path}: X contains NaN/Inf")
 
-    # Meta validation
+    # meta validation
     required_meta = [
         "spec_version",
         "dataset_seed",
@@ -262,7 +241,7 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
         if mode not in {"train", "eval"}:
             raise MetadataError(f"{path}: invalid mode: {mode}")
 
-       # Hash verification
+       # hash verification
     computed_hash = compute_simple64_checksum(x_raw, y_raw, N_meta, Ns_meta)
     stored_hash = int(meta["artifact_hash"])
 
@@ -279,5 +258,3 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
         meta=meta,
         root=root,
     )
-
-

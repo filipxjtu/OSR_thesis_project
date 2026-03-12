@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from python.src.dataio import load_artifact
-from python.src.preprocessing.dataset_builder import build_feature_tensor
+from ..dataio import load_artifact
+from ..preprocessing import build_feature_tensor
 
 from .runner import validate_all, ValidationConfig
 from .types import DatasetBundle, DatasetView
 
 
-# Adapter
+# adapter
 class ArtifactAdapter(DatasetView):
     def __init__(self, name: str, artifact):
         self._name = name
@@ -32,8 +32,7 @@ class ArtifactAdapter(DatasetView):
     def meta(self):
         return self._artifact.meta
 
-
-# Public Validation Gate
+# validation gate
 def run_validation_gate(
     *,
     clean_file: str,
@@ -42,11 +41,14 @@ def run_validation_gate(
     spec_version: str,
     n_classes: int,
     report_name: str,
+    enable_feature_checks: bool,
+    partial_features_check: bool,
+    enable_repro_check: bool,
+    repro_trial,
 ) -> None:
     """
-    Executes full dataset validation.
-    Raises ValidationError if failure.
-    Saves JSON summary on PASS.
+    Executes full dataset validation and raise ValidationError if failed.
+    Saves JSON summary if validation PASS.
     """
 
     clean_artifact = load_artifact(clean_file)
@@ -62,10 +64,10 @@ def run_validation_gate(
     config = ValidationConfig(
         spec_version_expected=spec_version,
         n_classes_expected=n_classes,
-        enable_feature_checks=True,
-        partial_features_check=True,
-        enable_repro_check=False,
-        repro_trials=2,
+        enable_feature_checks=enable_feature_checks,
+        partial_features_check=partial_features_check,
+        enable_repro_check=enable_repro_check,
+        repro_trials=repro_trial,
     )
 
     summary = validate_all(
@@ -80,5 +82,4 @@ def run_validation_gate(
 
     report_path = report_dir / report_name
     summary.save_json(report_path)
-
     print(f"\nValidation report saved to: {report_path}")

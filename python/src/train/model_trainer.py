@@ -7,20 +7,15 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from python.src.validation.gate import run_validation_gate
-from python.src.validation.exceptions import ValidationError
-from python.src.dataio.loader import load_artifact
-from python.src.preprocessing.dataset_builder import build_feature_tensor
-from python.src.preprocessing.splitting import split_dataset
-from python.src.train.engine import train_one_epoch, evaluate
-from python.src.train.hparams import HParams
-from python.src.utils.dataloaders import create_train_loader, create_eval_loader
-from python.src.utils.device import resolve_device
-from python.src.analysis.model_diagnostics import generate_confusion_outputs, plot_cnn_feature_embedding
+from ..analysis import generate_confusion_outputs, plot_cnn_feature_embedding
+from ..dataio import load_artifact
+from ..preprocessing import build_feature_tensor, split_dataset
+from ..train import train_one_epoch, evaluate, HParams
+from ..utils import create_train_loader, create_eval_loader, resolve_device
+from ..validation import run_validation_gate, ValidationError
 
-from python.src.models.baseline_cnn import BaselineCNN
-from python.src.models.first_residual_cnn import ResidualCNN
-#from python.src.models.baseline_cnn import [future models 2]
+from ..models import BaselineCNN, ResidualCNN  #[add future models]
+
 
 
 MODEL_REGISTRY = {
@@ -29,12 +24,11 @@ MODEL_REGISTRY = {
     #"future model 2": FutureModel2,
 }
 
-
 def train_model(seed: int,
                 project_root: Path,
                 model_name: str,
                 n_per_class: int,
-                spec_version: str = "v1"
+                spec_version: str,
                 ):
 
     if model_name not in MODEL_REGISTRY:
@@ -46,22 +40,35 @@ def train_model(seed: int,
     train_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_train.mat"
     eval_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_eval.mat"
 
-    report_name = f"validation_seed{seed}_n{n_per_class}_{model_name}.json"
 
-    try:
-        run_validation_gate(
-            clean_file=str(clean_file),
-            train_file=str(train_file),
-            eval_file=str(eval_file),
-            spec_version=spec_version,
-            n_classes=7,
-            report_name=report_name,
-        )
-        print("\nValidation passed. Starting training...\n")
+    report_name = f"validation_seed{seed}_n{n_per_class}_{spec_version}.json"
+    report_dir = project_root / "reports" / "validations"
+    report_path = report_dir / report_name
 
-    except ValidationError as e:
-        print("\nDATASET VALIDATION FAILED")
-        raise e
+    if report_path.exists():
+        print(f"\nExisting validation report found at: {report_path}")
+        print("DATASET VALIDATION ALREADY PASSED. Starting training...\n")
+
+    else:
+        try:
+            run_validation_gate(
+                clean_file=str(clean_file),
+                train_file=str(train_file),
+                eval_file=str(eval_file),
+                spec_version=spec_version,
+                n_classes=7,
+                report_name=report_name,
+                enable_feature_checks=True,
+                partial_features_check=False,
+                enable_repro_check=True,
+                repro_trial=2,
+            )
+
+            print("\nDATASET VALIDATION PASSED. Starting training...\n")
+
+        except ValidationError as e:
+            print("\nDATASET VALIDATION FAILED")
+            raise e
 
     hparams = HParams(
         lr=1e-3,
@@ -76,17 +83,13 @@ def train_model(seed: int,
         torch.manual_seed(hparams.seed)
 
     device = resolve_device(hparams.device)
-    print(f"Using device: {device}")
+    print(f"Using device: {device}\n")
 
     train_artifact = load_artifact(str(train_file))
-    X, y = build_feature_tensor(train_artifact)
 
-    train_set, val_set = split_dataset(
-        X,
-        y,
-        train_ratio=0.8,
-        seed=hparams.seed,
-    )
+    x, y = build_feature_tensor(train_artifact)
+
+    train_set, val_set = split_dataset(x, y, train_ratio=0.8, seed=hparams.seed)
 
     train_loader = create_train_loader(train_set, hparams.batch_size, device)
     val_loader = create_eval_loader(val_set, hparams.batch_size, device)
@@ -147,26 +150,15 @@ def train_model(seed: int,
 
     figures_dir = project_root / "reports" / "figures" / f"{model_name}_seed{seed}_n{n_per_class}"
 
-    generate_confusion_outputs(
-        model,
-        val_loader,
-        device,
-        figures_dir,
-        n_classes=7,
-    )
+    generate_confusion_outputs(model, val_loader, device, figures_dir, n_classes=7)
 
-    plot_cnn_feature_embedding(
-        model,
-        val_loader,
-        device,
-        figures_dir,
-        n_classes=7
-    )
+    plot_cnn_feature_embedding(model, val_loader, device, figures_dir, n_classes=7)
 
     ckpt_dir = project_root / "artifacts" / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt_path = ckpt_dir / f"{model_name}_seed{seed}_n{n_per_class}.pt"
+
     torch.save(best_state, ckpt_path)
 
     log_dir = project_root / "artifacts" / "logs" / "training"

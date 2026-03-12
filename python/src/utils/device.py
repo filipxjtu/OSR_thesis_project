@@ -5,12 +5,9 @@ import torch
 
 def resolve_device(requested: str) -> torch.device:
     """
-    Resolves the requested device string into an available torch.device.
-
-    Priority logic:
-        - If 'cuda' requested but unavailable → fallback to cpu
-        - If 'mps' requested but unavailable → fallback to cpu
-        - If 'auto' requested → choose best available
+    - If 'cuda' requested but unavailable → fallback to cpu
+    - If 'mps' requested but unavailable → fallback to cpu
+    - If 'auto' requested → choose best available
     """
 
     requested = requested.lower()

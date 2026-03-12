@@ -12,12 +12,6 @@ def train_one_epoch(
     criterion: nn.Module,
     device: torch.device,
 ) -> float:
-    """
-    Executes one full training epoch.
-
-    Returns:
-        mean training loss (float)
-    """
 
     model.train()
 
@@ -35,7 +29,6 @@ def train_one_epoch(
 
         loss.backward()
         optimizer.step()
-
         batch_size = x.size(0)
         total_loss += loss.item() * batch_size
         total_samples += batch_size
@@ -47,18 +40,7 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(
-    model: nn.Module,
-    loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-) -> tuple[float, float]:
-    """
-    Evaluates model on validation set.
-
-    Returns:
-        (mean_loss, accuracy)
-    """
+def evaluate(model: nn.Module, loader: DataLoader, criterion: nn.Module, device: torch.device) -> tuple[float, float]:
 
     model.eval()
 
@@ -75,9 +57,8 @@ def evaluate(
 
         batch_size = x.size(0)
         total_loss += loss.item() * batch_size
-
-        preds = torch.argmax(logits, dim=1)
-        total_correct += (preds == y).sum().item()
+        predicts = torch.argmax(logits, dim=1)
+        total_correct += (predicts == y).sum().item()
         total_samples += batch_size
 
     if total_samples == 0:

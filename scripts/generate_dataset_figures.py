@@ -1,5 +1,6 @@
 from pathlib import Path
-from python.src.analysis.dataset_figures import generate_dataset_figures
+
+from python.src.analysis import generate_dataset_figures
 
 
 def find_project_root():
@@ -17,9 +18,9 @@ def main():
 
     project_root = find_project_root()
 
-    spec_version = "v1"
-    seeds = [45]
-    n_per_class = [200]
+    spec_version = "v2"
+    seeds = [40]
+    n_per_class = [400]
 
     for seed in seeds:
         for n in n_per_class:

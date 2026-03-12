@@ -6,10 +6,7 @@ import torch.nn as nn
 
 class ResidualBlock(nn.Module):
     """
-    Basic residual block.
-
-    Structure:
-        x -> Conv -> BN -> ReLU -> Conv -> BN -> +x -> ReLU
+    Structure: x -> Conv -> BN -> ReLU -> Conv -> BN -> +x -> ReLU
     """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
@@ -46,6 +43,7 @@ class ResidualBlock(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+
         identity = self.skip(x)
 
         out = self.conv1(x)
@@ -62,24 +60,18 @@ class ResidualBlock(nn.Module):
 
 
 class ResidualCNN(nn.Module):
-    """
-    Residual CNN backbone for RF interference recognition.
-
-    Expected input:
-        (N, 1, F, T)
-    """
 
     def __init__(self, num_classes: int = 7):
         super().__init__()
 
-        # Initial stem
+        # initial stem
         self.stem = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
         )
 
-        # Residual stages
+        # residual stages
         self.layer1 = nn.Sequential(
             ResidualBlock(32, 32),
             ResidualBlock(32, 32),
@@ -98,6 +90,7 @@ class ResidualCNN(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.classifier = nn.Linear(128, num_classes)
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
@@ -118,17 +111,14 @@ class ResidualCNN(nn.Module):
 
         return logits
 
+
     def extract_embedding(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Returns feature embedding before classification.
-        """
+        """ returns feature embedding before classification. """
 
         x = self.stem(x)
-
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
-
         x = self.pool(x)
         x = torch.flatten(x, 1)
 

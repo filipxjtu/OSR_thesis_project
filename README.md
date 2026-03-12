@@ -1,248 +1,316 @@
-README file for Thesis Project
+\---
 
 
 
+\# RF Interference Recognition Research Pipeline
 
 
-|thesis\_project/
 
+End-to-end research pipeline for \*\*synthetic RF interference generation, dataset validation, and CNN-based classification\*\*.
 
 
-   |artifacts/
 
-        |checkpoints/
+This repository supports a Master's thesis project on \*\*communication interference recognition using deep learning\*\*, with a focus on \*\*reproducible synthetic data generation and controlled evaluation\*\*.
 
-        |datasets/
 
-             |clean/
 
- 		 |clean\_dataset\_v1\_seed8.mat
+\---
 
- 		 |clean\_dataset\_v1\_seed49.mat
 
- 		 |clean\_dataset\_v1\_seed888.mat
 
-             |impaired/
+\## Project Overview
 
- 		 |impaired\_dataset\_v1\_seed8\_eval.mat
 
- 		 |impaired\_dataset\_v1\_seed8\_train.mat
 
- 		 |impaired\_dataset\_v1\_seed49\_train.mat
+The system implements a \*\*deterministic MATLAB → Python pipeline\*\* for developing and evaluating RF interference classification models.
 
- 		 |impaired\_dataset\_v1\_seed49\_eval.mat
 
- 		 |impaired\_dataset\_v1\_seed888\_train.mat
 
- 		 |impaired\_dataset\_v1\_seed888\_eval.mat
+The workflow is designed to ensure:
 
-        |figs/
 
-        |logs/
 
- 
+\* deterministic synthetic signal generation
 
-   |configs/
+\* strict MATLAB ↔ Python data contracts
 
+\* dataset validation before model training
 
+\* reproducible experiments
 
-   |contracts/
+\* extensibility toward \*\*open-set recognition\*\* and \*\*real-world RF datasets\*\*
 
- 	|matlab\_python
 
-             |Matlab\_Python\_Interface\_Contract.md
 
+The pipeline separates \*\*data generation\*\*, \*\*data validation\*\*, and \*\*model training\*\* to maintain scientific traceability.
 
 
-   |env/
 
+\---
 
 
-   |matlab/
 
-        |+clean/
+\## System Architecture
 
- 	     |generate\_clean\_dataset.m
 
- 	     |generate\_clean\_sample.m
 
- 	     |generate\_sample\_params.m
+```
 
- 	     |generate\_stat\_report\_clean.m
+MATLAB
 
- 	     |get\_active\_fields.m
+│
 
- 	     |init\_clean\_param\_record.m
+├── Clean Signal Generator
 
-             |report\_clean\_dataset\_v1.m
+├── Impairment Layer
 
- 	     |set\_sample\_rng.m
+└── Dataset Export (.mat / HDF5)
 
-  	     |synthesize\_clean\_signal\_class0.m
+&#x20;       │
 
-  	     |synthesize\_clean\_signal\_class1.m
+&#x20;       ▼
 
-  	     |synthesize\_clean\_signal\_class2.m
+Python
 
-  	     |synthesize\_clean\_signal\_class3.m
+│
 
-  	     |synthesize\_clean\_signal\_class4.m
+├── Data Loader \& Validation
 
-  	     |synthesize\_clean\_signal\_class5.m
+├── Feature Extraction (STFT)
 
-  	     |synthesize\_clean\_signal\_class6.m
+├── Dataset Assembly
 
- 	     |validate\_active\_fields.m
+└── CNN Training \& Evaluation
 
-        |+core/
+```
 
- 	     |compute\_artifact\_hash.m
 
- 	     |get\_canonical\_spec.m
 
- 	     |validate\_spec\_structure.m
+\---
 
-        |+impaired/
 
- 	     |apply\_impairment.m
 
- 	     |generate\_impaired\_dataset.m
+\## Repository Structure
 
- 	     |generate\_stat\_report\_impaired.m
 
- 	     |init\_imp\_param\_record.m
 
- 	     |report\_impaired\_dataset\_v1.m
+```
 
-        |export/
+thesis\_project
 
-        |tests/
+│
 
+├── artifacts/          # Generated datasets and experiment outputs
 
+├── configs/            # Configuration files
 
-   |python/
+├── contracts/          # MATLAB ↔ Python interface contracts
 
-        |notebooks/
+│
 
-        |src/
+├── matlab/
 
-            |dataio/
+│   ├── +clean/         # Clean signal generators
 
- 		|\_\_init\_\_.py
+│   ├── +impaired/      # Impairment models
 
- 		|contract.py
+│   ├── +core/          # Shared MATLAB utilities
 
- 		|dataset\_artifact.py
+│   ├── export/         # Dataset export tools
 
- 		|exceptions.py
+│   └── tests/          # MATLAB verification scripts
 
- 		|loader.py
+│
 
-            |eval/
+├── python/
 
-            |models/
+│   └── src/
 
- 	    |preprocessing
+│       ├── dataio/     # Dataset loaders and contracts
 
- 		|\_\_init\_\_.py
+│       ├── preprocessing/
 
- 		|dataset\_builder.py
+│       ├── models/     # CNN architectures
 
- 		|splitting.py
+│       ├── train/      # Training pipeline
 
- 		|stft.py
+│       ├── validation/ # Dataset sanity checks
 
-            |train/
+│       └── utils/
 
-            |utils/
+│
 
- 	    |validation
+├── reports/            # Dataset figures and Statistical, experiment, and validation reports
 
- 		|\_\_init\_\_.py
+├── scripts/            # Experiment runner scripts
 
- 		|baseline.py
+├── specs/              # Dataset and signal specifications
 
- 		|checks.py
+├── env/                # Environment configuration
 
- 		|exceptions.py
+│
 
- 		|features.py
+└── README.md
 
- 		|repro.py
+```
 
- 		|runner.py
 
- 		|stats.py
 
- 		|summary.py
+\---
 
- 		|types.py
 
 
+\## Core Principles
 
-        |tests/
 
- 	|\_\_init\_\_.py ...(nothing written here)
 
+This project enforces several \*\*strict research rules\*\*:
 
 
-   |reports/
 
-        |architectural/
+\* \*\*Deterministic data generation\*\* (seed-controlled)
 
-             |Artifact Report on Clean Dataset Generator.md
+\* \*\*Explicit MATLAB ↔ Python interface\*\*
 
-             |Artifact Report on Impaired Dataset Generator.md
+\* \*\*No silent data assumptions\*\*
 
-        |experiments/
+\* \*\*Validation gates before training\*\*
 
-        |statistical/
+\* \*\*Reproducible experiment tracking\*\*
 
- 	     |clean\_dataset\_v1\_seed8\_statisticl\_report.md
 
- 	     |clean\_dataset\_v1\_seed49\_statisticl\_report.md
 
- 	     |clean\_dataset\_v1\_seed888\_statisticl\_report.md
+These rules ensure that model performance reflects \*\*learning quality\*\*, not dataset inconsistencies.
 
- 	     |impaired\_dataset\_v1\_seed8\_eval\_report.md
 
- 	     |impaired\_dataset\_v1\_seed8\_train\_report.md
 
- 	     |impaired\_dataset\_v1\_seed49\_eval\_report.md
+\---
 
- 	     |impaired\_dataset\_v1\_seed49\_train\_report.md
 
- 	     |impaired\_dataset\_v1\_seed888\_eval\_report.md
 
- 	     |impaired\_dataset\_v1\_seed888\_train\_report.md
+\## Dataset Format
 
- 	     |validation\_seed49.json
 
 
+Synthetic signals are generated in MATLAB and exported as \*\*HDF5-backed `.mat` files\*\*.
 
-        |README.md
 
 
+Key dataset properties:
 
-   |scripts/
 
- 	|pipe.py 
 
- 	|run\_clean\_pipeline.m
+\* Sampling rate: defined in `signal\_spec`
 
- 	|run\_impaired\_pipeline.m
+\* Fixed signal length
 
- 	|run\_validation.py
+\* Deterministic parameter generation
 
-   |specs/
+\* Metadata stored alongside signals
 
- 	|dataset\_spec\_v1.md
+\* FNV-1a checksum used for determinism verification
 
- 	|signal\_spec\_v1.md
 
- 	|system\_spec\_v1.md
 
+Python performs \*\*strict validation before loading the dataset\*\*.
 
 
-   |README.md \[this folder placement is stored here]
+
+\---
+
+
+
+\## Machine Learning Pipeline
+
+
+
+The Python pipeline includes:
+
+
+
+\* STFT feature extraction
+
+\* CNN model architectures
+
+\* training and evaluation utilities
+
+\* dataset validation gates
+
+\* experiment diagnostics
+
+
+
+Baseline models currently implemented:
+
+
+
+\* Baseline CNN
+
+\* Residual CNN
+
+
+
+\---
+
+
+
+\## Research Goal
+
+
+
+Develop a \*\*robust RF interference classification system\*\* that:
+
+
+
+1\. Learns from controlled synthetic data
+
+2\. Maintains full experiment reproducibility
+
+3\. Supports extension to \*\*open-set interference recognition\*\*
+
+4\. Enables evaluation on \*\*external RF datasets\*\*
+
+
+
+\---
+
+
+
+\## Status
+
+
+
+Project is under active development as part of a Master's thesis.
+
+
+
+Current focus:
+
+
+
+\* synthetic dataset pipeline
+
+\* MATLAB ↔ Python interface validation
+
+\* CNN architecture experimentation
+
+
+
+\---
+
+
+
+\## Author
+
+
+
+Master's Research Project
+
+Information and Communication Engineering
+
+
+
+\---
+
+
 

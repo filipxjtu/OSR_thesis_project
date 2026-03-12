@@ -6,7 +6,7 @@ project_root = fileparts(fileparts(mfilename('fullpath')));
 addpath(genpath(fullfile(project_root,'matlab')));
 
 spec = core.get_canonical_spec();
-spec.dataset_seed = int32(123);
+spec.dataset_seed = int32(99);
 
 sample_idx = int32(0);
 

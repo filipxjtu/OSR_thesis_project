@@ -7,12 +7,8 @@ import torch.nn as nn
 class BaselineCNN(nn.Module):
     """
     Minimal closed-set CNN for STFT feature tensors.
-
-    Expected input shape:
-        (N, 1, F, T)
-
-    Output:
-        logits of shape (N, num_classes)
+    Expected input shape: (N, 1, F, T)
+    Output: logits of shape (N, num_classes)
     """
 
     def __init__(self, num_classes: int = 7) -> None:
@@ -36,20 +32,19 @@ class BaselineCNN(nn.Module):
         self.classifier = nn.Linear(64, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: (N, 1, F, T)
-        """
+
         if x.ndim != 4:
             raise ValueError(f"Expected 4D input (N,1,F,T), got {tuple(x.shape)}")
 
         z = self.features(x)
         z = torch.flatten(z, start_dim=1)
+
         logits = self.classifier(z)
+
         return logits
 
     def extract_embedding(self, x):
-        x = self.features(x)  # convolutional blocks
-        #x = self.pool(x)  # adaptive pooling if present
+        x = self.features(x)
         x = torch.flatten(x, 1)
 
         return x

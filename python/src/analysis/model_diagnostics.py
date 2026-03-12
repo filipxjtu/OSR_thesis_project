@@ -16,33 +16,32 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
     model.eval()
 
     y_true = []
-    y_pred = []
+    y_predicts = []
 
     with torch.no_grad():
-        for X, y in dataloader:
-
-            X = X.to(device)
+        for x, y in dataloader:
+            x = x.to(device)
             y = y.to(device)
 
-            logits = model(X)
-            preds = torch.argmax(logits, dim=1)
+            logits = model(x)
+            predicts = torch.argmax(logits, dim=1)
 
             y_true.append(y.cpu().numpy())
-            y_pred.append(preds.cpu().numpy())
+            y_predicts.append(predicts.cpu().numpy())
 
     y_true = np.concatenate(y_true)
-    y_pred = np.concatenate(y_pred)
+    y_predicts = np.concatenate(y_predicts)
 
-    # ---------- Confusion matrix ----------
+    # Confusion matrix
     cm = np.zeros((n_classes, n_classes), dtype=int)
 
-    for t, p in zip(y_true, y_pred):
+    for t, p in zip(y_true, y_predicts):
         cm[t, p] += 1
 
     # normalize rows
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
 
-    # ---------- Plot confusion matrix ----------
+    # plotting confusion matrix
     plt.figure(figsize=(6,5))
     plt.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
     plt.colorbar(label="proportion")
@@ -69,16 +68,16 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
     plt.savefig(out_dir / "confusion_matrix.png", dpi=300)
     plt.close()
 
-    # ---------- ROC curves ----------
+    # ROC curves
     y_true_bin = label_binarize(y_true, classes=list(range(n_classes)))
 
     model.eval()
     probs_list = []
 
     with torch.no_grad():
-        for X, _ in dataloader:
-            X = X.to(device)
-            logits = model(X)
+        for x, _ in dataloader:
+            x = x.to(device)
+            logits = model(x)
             probs = torch.softmax(logits, dim=1)
             probs_list.append(probs.cpu().numpy())
 
@@ -108,7 +107,7 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
     plt.close()
 
 
-    # ---------- Per-class accuracy ----------
+    # per-class accuracy
     per_class_accuracy = {}
 
     for c in range(n_classes):
@@ -118,14 +117,12 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
         if np.sum(idx) == 0:
             acc = 0.0
         else:
-            acc = np.mean(y_pred[idx] == y_true[idx])
+            acc = np.mean(y_predicts[idx] == y_true[idx])
 
         per_class_accuracy[f"class_{c}"] = float(acc)
 
     with open(out_dir / "per_class_accuracy.json", "w") as f:
         json.dump(per_class_accuracy, f, indent=2)
-
-
 
 
 def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
@@ -136,11 +133,11 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
     labels = []
 
     with torch.no_grad():
-        for X, y in dataloader:
+        for x, y in dataloader:
 
-            X = X.to(device)
+            x = x.to(device)
 
-            feat = model.extract_embedding(X)
+            feat = model.extract_embedding(x)
 
             embeddings.append(feat.cpu().numpy())
             labels.append(y.numpy())
@@ -156,7 +153,6 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
     )
 
     emb_2d = tsne.fit_transform(embeddings)
-
     plt.figure(figsize=(6,6))
 
     for c in range(n_classes):
