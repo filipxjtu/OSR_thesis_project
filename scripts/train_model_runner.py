@@ -16,10 +16,11 @@ def main():
 
     project_root = find_project_root()
 
-    models = ["first_residual_cnn"]
+    models = ["ts_ms_va_drsn"]
     spec_version = "v2"
-    seeds = [22, 32, 40]
+    seeds = [17]
     n_per_class = [400]
+    epochs = 50
 
     for m in models:
         for s in seeds:
@@ -28,7 +29,14 @@ def main():
                 print(f"\n\nRunning experiment model = {m}, seed={s}, n per class = {n}")
                 print("==========================================================================\n")
 
-                train_model(seed=s, project_root=project_root, model_name=m, n_per_class=n, spec_version=spec_version)
+                train_model(
+                    seed=s,
+                    project_root=project_root,
+                    model_name=m,
+                    n_per_class=n,
+                    spec_version=spec_version,
+                    n_epochs=epochs,
+                )
 
 
 if __name__ == "__main__":

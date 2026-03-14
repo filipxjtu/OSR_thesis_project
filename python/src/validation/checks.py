@@ -65,7 +65,7 @@ def check_time_domain_stats(bundle: DatasetBundle, th: Thresholds) -> tuple[list
             "skewness": s.skewness,
             "kurtosis_excess": s.kurtosis_excess,
         }
-
+        print(f"abs(s.mean): {abs(s.mean)}")
         fails += _require(
             abs(s.mean) <= th.mean_abs_max,
             "C010.time_mean_near_zero",

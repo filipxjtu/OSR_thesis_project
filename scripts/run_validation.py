@@ -17,6 +17,25 @@ def find_project_root():
             return parent
     raise RuntimeError("Could not locate thesis_project root.")
 
+def compute_snr_debug(name, clean, impaired):
+
+    x_clean = torch.tensor(clean.X)
+    x_imp = torch.tensor(impaired.X)
+
+    # ensure same layout (N × Ns)
+    assert x_clean.shape == x_imp.shape
+
+    signal_power = torch.mean(x_clean ** 2, dim=0)
+    noise_power = torch.mean((x_imp - x_clean) ** 2, dim=0)
+
+    snr = 10 * torch.log10(signal_power / (noise_power + 1e-12))
+
+    print(f"\nEstimated SNR statistics of {name}")
+    print("-" * 25)
+    print(f"Mean SNR: {snr.mean():.2f} dB")
+    print(f"Min  SNR: {snr.min():.2f} dB")
+    print(f"Max  SNR: {snr.max():.2f} dB")
+
 
 def debug_preprocessing(name, artifact):
     print(f"\n DEBUG: {name}")
@@ -70,10 +89,16 @@ def run_debug_checks(clean_file, train_file, eval_file):
         artifact_train = load_artifact(train_file)
         artifact_eval = load_artifact(eval_file)
 
+
         # Run checks
         debug_preprocessing("Clean Dataset", artifact_clean)
         debug_preprocessing("Impaired Train Dataset", artifact_train)
         debug_preprocessing("Impaired Eval Dataset", artifact_eval)
+
+        # Estimated SNR statistics
+        compute_snr_debug("Train Data", artifact_clean, artifact_train)
+        compute_snr_debug("Evaluation Data", artifact_clean, artifact_eval)
+
 
 
         print("\ndebug checks completed successfully")
@@ -88,8 +113,8 @@ def run_debug_checks(clean_file, train_file, eval_file):
 def main():
 
     #parameters user can change
-    seeds = [22, 32, 40]
-    n_per_class = 400
+    seeds = [27]
+    n_per_class = 600
     spec_version = "v2"
     enable_feature_checks = True
     partial_features_check = False

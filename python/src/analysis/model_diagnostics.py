@@ -173,3 +173,27 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
 
     plt.savefig(out_dir / "cnn_feature_embedding.png", dpi=300)
     plt.close()
+
+def plot_threshold(thresholds, out_dir: Path):
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    block_mean_threshold = {}
+
+    for i, t in enumerate(thresholds):
+
+        block_mean_threshold[f"Block_{i}_mean_threshold"] = (t.mean().item())
+
+        plt.figure()
+        plt.plot(t.numpy())
+        plt.title(f"Shrinkage Thresholds Block {i}")
+        plt.xlabel("Channel")
+        plt.ylabel("Threshold")
+
+        plt.tight_layout()
+
+        plt.savefig(out_dir / f"shrinkage_threshold_block_{i}.png", dpi=300)
+        plt.close()
+
+    with open(out_dir / "mean_threshold per block.json", "w") as f:
+        json.dump(block_mean_threshold, f, indent=2)

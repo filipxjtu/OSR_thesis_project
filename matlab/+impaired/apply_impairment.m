@@ -42,8 +42,8 @@ function [x_imp, imp_params] = apply_impairment(x_clean, sample_index, spec, mod
     assert(isreal(x), 'apply_impairment:ComplexInput', 'x_clean must be real (v1 contract).');
 
     % Policy defaults
-    if ~isfield(spec, 'snr_train_db'), spec.snr_train_db = [-10 5]; end
-    if ~isfield(spec, 'snr_eval_db'),  spec.snr_eval_db  = [10 25]; end
+    if ~isfield(spec, 'snr_train_db'), spec.snr_train_db = [-12 -2]; end
+    if ~isfield(spec, 'snr_eval_db'),  spec.snr_eval_db  = [-2 8]; end
 
     if ~isfield(spec, 'enable_phase_offset'), spec.enable_phase_offset = false; end
     if ~isfield(spec, 'enable_amp_scaling'),  spec.enable_amp_scaling  = false; end

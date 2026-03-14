@@ -1,0 +1,1619 @@
+this files are located in
+
+thesis_pject/matlab/+clean
+thesis_pject/matlab/+core
+thesis_pject/matlab/+impaired
+thesis_pject/scripts/
+
+%%%%%%%%%%% +clean folder %%%%%%%%%%%%%%
+
+%%generate_clean_dataset.m
+function dataset = generate_clean_dataset(n_per_class, spec)
+
+    core.validate_spec_structure(spec);
+    
+    TotalSamples = 7 * n_per_class;
+
+    % Preallocate correctly
+    X_clean = zeros(spec.N, TotalSamples);
+    y = zeros(TotalSamples, 1, 'int32');
+    params(TotalSamples,1) = clean.init_clean_param_record(0, 0);
+
+    % Deterministic generation loop
+    idx = 1;
+    for class_id = 0:6
+        for sample_idx = 0:(n_per_class-1)
+
+            [x_clean, label, p] = clean.generate_clean_sample(class_id, sample_idx, spec);
+
+            % Enforce column orientation
+            if isrow(x_clean)
+                x_clean = x_clean.';
+            end
+
+            X_clean(:, idx) = double(x_clean);
+            y(idx, 1)       = int32(label);
+            params(idx) = p;
+
+            idx = idx + 1;
+        end
+    end
+    
+    % Assemble dataset struct
+    dataset = struct();
+    dataset.X_clean = X_clean;
+    dataset.y       = y;
+    dataset.params  = params;
+
+    dataset.meta = struct();
+    dataset.meta.spec_version      = char(spec.spec_version);
+    dataset.meta.dataset_seed      = spec.dataset_seed;
+    dataset.meta.artifact_hash_fn  = char("simple64_checksum");
+    dataset.meta.layout            = char("N_by_Ns_columns_are_samples");
+    dataset.meta.dtype_policy      = char("float64_X_int32_y");
+    dataset.meta.N                 = spec.N;
+    dataset.meta.fs                = spec.fs;
+    dataset.meta.Ns                = TotalSamples;
+    dataset.meta.n_per_class       = n_per_class;
+    dataset.meta.class_set         = int32(0:6);
+    dataset.meta.dataset_version   = char("clean_dataset_v1");
+    dataset.meta.created_utc       = char(string(datetime("now","TimeZone","UTC","Format","yyyy-MM-dd'T'HH:mm:ss'Z'")));
+    
+    % checksum with hash artifact
+    dataset.meta.artifact_hash = core.compute_artifact_hash(dataset);
+    
+    % Validation block 
+    assert(all(isfinite(dataset.X_clean(:))), 'Dataset contains non-finite values.');
+    assert(isreal(dataset.X_clean), 'Dataset must be real.');
+    assert(size(dataset.X_clean,1) == spec.N, 'Incorrect signal length.');
+    assert(numel(dataset.y) == size(dataset.X_clean,2), 'Label mismatch.');
+    assert((spec.spec_version == dataset.meta.spec_version), 'Spec version mismatch.');
+end
+
+%%generate_clen_sample.m
+function [x_clean, y, params] = generate_clean_sample(class_id, sample_idx, spec)
+    % GENERATE_CLEAN_SAMPLE Orchestrator for single-sample generation.
+    
+    % Inputs:
+    %   class_id   : (int32) The signal category (0-6)
+    %   sample_idx : (int32) Unique index for RNG seeding
+    %   spec       : Canonical project specification struct
+    
+    % Outputs:
+    %   x_clean    : The synthesized column vector
+    %   y          : The label (integer class_id)
+    %   params     : The specific parameters used for this waveform
+
+    class_id = int32(class_id);
+    sample_idx = int32(sample_idx);
+
+    % generate parameters
+    params = clean.generate_sample_params(class_id, sample_idx, spec);
+
+    switch class_id
+        case 0
+            x_clean = clean.synthesize_clean_signal_class0(params, spec);
+        case 1
+            x_clean = clean.synthesize_clean_signal_class1(params, spec);
+        case 2
+            x_clean = clean.synthesize_clean_signal_class2(params, spec);
+        case 3
+            x_clean = clean.synthesize_clean_signal_class3(params, spec);
+        case 4
+            x_clean = clean.synthesize_clean_signal_class4(params, spec);
+        case 5
+            x_clean = clean.synthesize_clean_signal_class5(params, spec);
+        case 6
+            x_clean = clean.synthesize_clean_signal_class6(params, spec);
+        otherwise
+            error('Invalid class_id: %d. Must be 0-6.', class_id);
+    end
+
+    % set label
+    y = int32(class_id);
+
+    % boundary assertions
+    assert(numel(x_clean) == spec.N, 'Signal length must match spec.N');
+    assert(iscolumn(x_clean), 'Signal must be a column vector');
+    assert(params.class_id == y, 'Parameter class mismatch with label y');
+end
+
+%%generate_sample_params.m
+function params = generate_sample_params(class_id, sample_idx, spec)
+    % GENERATE_SAMPLE_PARAMS Samples reproducible signal parameters
+    % return parameters are determined based on the class_id
+
+    %enforcing accepted type
+    class_id   = int32(class_id);
+    sample_idx = int32(sample_idx);
+
+    % set_sample_rng assertions.
+    old_state = clean.set_sample_rng(spec, class_id, sample_idx);
+
+    % common metadata
+    params = clean.init_clean_param_record(class_id,sample_idx);
+    
+  % class_id based sampling
+    switch class_id
+        case 0  % Single Tone (Clean)
+            % Constraints
+            lims.A   = [0.8, 1.2];          
+            lims.f0  = [1e6, 4e6];  
+            lims.phi = [0, 2*pi];           
+            
+            % Sample
+            params.A   = lims.A(1)   + diff(lims.A)   * rand(1);
+            params.f0  = lims.f0(1)  + diff(lims.f0)  * rand(1);
+            params.phi = lims.phi(1) + diff(lims.phi) * rand(1);
+
+            params.lims = lims;
+            
+            % Units
+            params.units.A   = char("linear");
+            params.units.f0  = char("Hz");
+            params.units.phi = char("rad");
+
+        case 1  % Multi-Tone (Clean)
+            % Constraints
+            lims.K_range = [3, 5];             % small and bounded
+            lims.A_total_max = 1.5;            % avoids clipping
+            lims.f0 = [0.5e6, 4.5e6];      % Within fs/2 (10MHz fs)
+            lims.phi = [0, 2*pi]; 
+            
+            % sample K (Number of tones)
+            params.K = randi(lims.K_range);
+            
+            % sample amplitudes 
+            raw_A = rand(params.K, 1);             % column vector
+            params.A = (raw_A / sum(raw_A)) * lims.A_total_max;        % scaled to avoid clipping
+            
+            % sample frequencies
+            params.f0 = sort(lims.f0(1) + diff(lims.f0) * rand(params.K, 1));
+            
+            % sample phases
+            params.phi = lims.phi(1) + diff(lims.phi) * rand(params.K, 1);
+            
+            params.lims = lims;
+
+            % Units
+            params.units.A = char("linear vector");
+            params.units.f0 =  char("Hz vector");
+            params.units.phi = char("rad vector");
+            params.units.K = char("integer");
+
+        case 2  % LFM sweep (Clean)
+            % Constraints
+            lims.A   = [0.8, 1.2];          
+            f_min = 0.1 * (spec.fs /2);
+            f_max = 0.9 * (spec.fs /2); 
+            lims.f = [f_min, f_max];
+            lims.phi = [0, 2*pi];
+            
+            % Sample
+            params.A   = lims.A(1)   + diff(lims.A)   * rand(1);
+            f_pair = sort(lims.f(1) + diff(lims.f) * rand(2, 1));
+            params.f0 = f_pair(1);
+            params.f1 = f_pair(2);
+            params.phi = lims.phi(1) + diff(lims.phi) * rand(1);
+            params.T = double(spec.N) / double(spec.fs);
+
+            params.lims = lims;
+            
+            % Units
+            params.units.A   = char("linear");
+            params.units.f0  = char("Hz");
+            params.units.f1  = char("Hz");
+            params.units.phi = char("rad");
+            params.units.T = char("seconds");
+        
+          case 3  % SFM sweep (Clean)
+            % Constraints
+            lims.A   = [0.8, 1.2];
+            lims.fc = [0.3 * (spec.fs /2), 0.7 * (spec.fs/2)];
+            lims.df = [0.02 * (spec.fs /2), 0.15 * (spec.fs/2)];
+            lims.fm_ratio = [0.01, 0.05];        % 1% to 10% of fc
+            lims.phi = [0, 2*pi];
+            
+            % Sample
+            params.A   = lims.A(1)   + diff(lims.A)   * rand(1);         
+            params.fc = lims.fc(1) + diff(lims.fc) * rand(1);
+            params.df = lims.df(1) + diff(lims.df) * rand(1);
+            ratio = lims.fm_ratio(1) + diff(lims.fm_ratio) * rand(1);
+            params.fm = ratio * params.fc;
+            params.phi = lims.phi(1) + diff(lims.phi) * rand(1);
+            assert(params.fm > 0,'SFM, fm should be positive');
+            params.beta = params.df / params.fm;
+            assert(params.fc + params.df < spec.fs/2, 'SFM violates Nyquist constraint.');
+            
+            params.lims = lims;
+
+            % Units
+            params.units.A   = char("linear");
+            params.units.fc  = char("Hz");
+            params.units.df  = char("Hz");
+            params.units.fm  = char("Hz");
+            params.units.phi = char("rad");
+            params.units.beta = char("ratio");
+        
+        case 4  % PBN (Clean)
+            % constants and FFT Setup
+            nfft = spec.N;
+            freq_res = spec.fs / nfft;
+            nyquist = spec.fs / 2;
+            
+            % constraints
+            lims.A  = [0.8, 1.2];
+            lims.fL = [0.05 * nyquist, 0.6 * nyquist]; % 5% to 60% of Nyquist
+            lims.BW = [0.05 * nyquist, 0.25 * nyquist]; % 5% and 25% of Nyquist
+            lims.phi = [0, 2*pi];
+            
+            % amplitude scale
+            params.A = lims.A(1) + diff(lims.A) * rand(1);
+
+            % sample frequency band
+            params.fL = lims.fL(1) + diff(lims.fL) * rand(1);
+            params.bandwidth  = lims.BW(1) + diff(lims.BW) * rand(1);
+            params.fH = params.fL + params.bandwidth;
+            
+            % convert to bin indices [bin 1 is DC (0 Hz)] 
+            bin_L = ceil(params.fL / freq_res) + 1;
+            bin_H = floor(params.fH / freq_res) + 1;
+
+            % Nyquist bin index (for even nfft)
+            nyq_bin = floor(nfft/2) + 1;
+
+            % assertions
+            assert(bin_L >= 2, 'PBN: bin_L must be >= 2 (avoid DC).');
+            assert(bin_H <= nyq_bin - 1, 'PBN: bin_H must be < Nyquist bin.');
+            assert(bin_H >= bin_L, 'PBN: invalid band bins.');
+
+            % sample phases for bins in band
+            n_band_bins = bin_H - bin_L + 1;
+            phi_bins = lims.phi(1) + diff(lims.phi) * rand(n_band_bins, 1);
+
+            params.lims = lims;
+
+            params.bin_info.nfft = nfft;
+            params.bin_info.freq_res = freq_res;
+            params.bin_info.bin_L = bin_L;
+            params.bin_info.bin_H = bin_H;
+            params.bin_info.phi_bins = phi_bins;
+            
+            % Units
+            params.units.A      = char("linear");
+            params.units.nfft  = char("samples");
+            params.units.fL     = char("Hz");
+            params.units.fH     = char("Hz");
+            params.units.bin_L  = char("index");
+            params.units.bin_H  = char("index");
+            params.units.phi_bins  = char("rad vector");
+            params.units.freq_res = char("Hz");
+            params.units.bandwidth = char("Hz");
+            
+        case 5 % Noise FM (Clean)
+            % setup and grid
+            nfft = spec.N;
+            mod_freq_res = spec.fs / nfft;
+            nyquist = spec.fs / 2;
+            nyq_bin = floor(nfft / 2) + 1;
+            
+            % constraints
+            lims.A     = [0.8, 1.2];
+            lims.fc    = [0.2 * nyquist, 0.6 * nyquist];   % Carrier range
+            lims.fL    = [0.02 * nyquist, 0.2 * nyquist];  % Modulator band floor
+            lims.BW    = [0.02 * nyquist, 0.15 * nyquist]; % Modulator bandwidth
+            lims.kappa = [5, 50];                          % Modulation sensitivity
+            lims.phi   = [0, 2*pi];
+            
+            % sample scalar parameters
+            params.A     = lims.A(1) + diff(lims.A) * rand(1);
+            params.fc    = lims.fc(1) + diff(lims.fc) * rand(1);
+            params.kappa = lims.kappa(1) + diff(lims.kappa) * rand(1);
+            params.phi  = lims.phi(1) + diff(lims.phi) * rand(1);
+            
+            % sample Modulator Frequency Band
+            fL_mod = lims.fL(1) + diff(lims.fL) * rand(1);
+            BW_mod = lims.BW(1) + diff(lims.BW) * rand(1);
+            fH_mod = fL_mod + BW_mod;
+            
+            % convert to bin indices
+            mod_bin_L = ceil(fL_mod / mod_freq_res) + 1;
+            mod_bin_H = floor(fH_mod / mod_freq_res) + 1;
+            
+            % assertions
+            assert(mod_bin_L >= 2, 'NoiseFM: bin_L must avoid DC.');
+            assert(mod_bin_H <= nyq_bin - 1, 'NoiseFM: bin_H must stay below Nyquist.');
+            assert(mod_bin_H >= mod_bin_L, 'NoiseFM: invalid modulator band.');
+            
+            % sample Modulator Phases
+            n_band_bins = mod_bin_H - mod_bin_L + 1;
+            phi_bins = lims.phi(1) + diff(lims.phi) * rand(n_band_bins, 1);
+            
+            params.fL = fL_mod;
+            params.fH = fH_mod;
+            params.bandwidth = BW_mod;
+            params.lims = lims;
+            
+            params.bin_info.nfft = nfft;
+            params.bin_info.freq_res = mod_freq_res;
+            params.bin_info.bin_L = mod_bin_L;
+            params.bin_info.bin_H = mod_bin_H;
+            params.bin_info.phi_bins = phi_bins;
+
+            % Units
+            params.units.A        = char("linear");
+            params.units.fc       = char("Hz");
+            params.units.kappa    = char("rad/s");
+            params.units.phi     = char("rad");
+            params.units.phi_bins = char("rad vector");
+            params.units.bin_L    = char("index");
+            params.units.bin_H    = char("index");
+            params.units.nfft     = char("samples");
+            params.units.freq_res = char("Hz");
+            params.units.bandwidth = char("Hz");
+
+        case 6  % Frequency Hopping (FH)(Clean)
+            % constants
+            Lhop_options = [128, 256, 512]; 
+            grid_freq = 16;   
+            
+            % constraints
+            lims.A    = [0.8, 1.2];
+            lims.f_range   = [0.1 * (spec.fs /2) , 0.9 * (spec.fs / 2 )]; 
+            lims.phi = [0, 2*pi];
+            
+            % sampling basic parameters
+            params.A    = lims.A(1) + diff(lims.A) * rand(1);
+            hop_info.Lhop = Lhop_options(randi(numel(Lhop_options)));
+           
+            % deterministic frequency grid (hop_set)
+            hop_info.hop_set = linspace(lims.f_range(1), lims.f_range(2), grid_freq)';
+            assert(max(hop_info.hop_set) < spec.fs/2, 'FH grid violates Nyquist constraint.');
+
+            % determine num of hops and sample indices
+            hop_info.n_hops = ceil(double(spec.N) / double(hop_info.Lhop));
+            
+            % randomly pick - result is a vector of integers from 1 to 16
+            hop_info.hop_idx = randi(numel(hop_info.hop_set), [hop_info.n_hops, 1]);
+
+            % random phase hops
+            hop_info.phi_hops = lims.phi(1) + diff(lims.phi) * rand(hop_info.n_hops,1);
+            
+            params.hop_info = hop_info;
+            params.lims = lims;
+
+            % Units
+            params.units.A       = char("linear");
+            params.units.Lhop    = char("samples");
+            params.units.hop_set = char("Hz vector (grid)");
+            params.units.hop_idx = char("vector of indices");
+            params.units.n_hops  =  char("integer");
+            params.units.phi_hops = char("rad vector");
+
+        otherwise
+            error('Invalid class_id: %d. Must be 0-6.', class_id);
+    end
+
+    required_fields = clean.get_active_fields(class_id);
+    clean.validate_active_fields(params, required_fields);
+
+    % Restore RNG State so as not to affect the rest of the workspace.
+    rng(old_state);
+end 
+
+%%generate_stat_report_clean.m
+function generate_stat_report_clean(dataset)
+    % ------------------------------------------------------------
+
+    % Basic validation
+    assert(isstruct(dataset), 'Input must be a dataset struct.');
+    assert(isfield(dataset,'X_clean'), 'Missing X_clean.');
+    assert(isfield(dataset,'y'), 'Missing y.');
+    assert(isfield(dataset,'params'), 'Missing params.');
+    assert(isfield(dataset,'meta'), 'Missing meta.');
+
+    X = dataset.X_clean;
+    y = dataset.y;
+    params = dataset.params;
+    meta = dataset.meta;
+
+    classes = 0:6;
+    %n_classes = numel(classes);
+
+    % Dataset size
+    n_per_class = meta.n_per_class;
+    total_samples = meta.Ns;
+    N = meta.N;
+    fs = meta.fs;
+    seed = meta.dataset_seed;
+    spec_version = meta.spec_version;
+
+
+    % Generate report using the report generator function
+    report = clean.report_clean_dataset_v1(dataset);
+
+    % Prepare file
+    filename = sprintf('clean_dataset_v1_seed%d_statistical_report.md', seed);
+    intended_dir = fullfile('reports','statistical');
+    fid = fopen(fullfile(intended_dir, filename), 'w');
+
+    fprintf(fid, '# Clean Dataset Artifact Report (Mathematical Summary)\n');
+    fprintf(fid, 'Version: %s  \n', spec_version);
+    fprintf(fid, 'Artifact: clean_dataset_v1_seed%d.mat  \n\n', seed);
+    
+    % Specification Section
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 1. Specification Used\n\n');
+    fprintf(fid, '| Field | Value |\n');
+    fprintf(fid, '|-------|-------|\n');
+    fprintf(fid, '| spec_version | %s |\n', spec_version);
+    fprintf(fid, '| fs | %.0f Hz |\n', fs);
+    fprintf(fid, '| N | %d samples |\n', N);
+    fprintf(fid, '| dataset_seed | %d |\n\n', seed);
+
+    % Dataset Size
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 2. Dataset Size\n\n');
+    fprintf(fid, '| Quantity | Value |\n');
+    fprintf(fid, '|----------|-------|\n');
+    fprintf(fid, '| Classes | 7 (0–6) |\n');
+    fprintf(fid, '| n_per_class | %d |\n', n_per_class);
+    fprintf(fid, '| total_samples | %d |\n', total_samples);
+    fprintf(fid, '| Matrix shape (X_clean) | %d × %d |\n\n', N, total_samples);
+
+    % Parameter Min/Max per Class
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 3. Realized Parameter Ranges (Per Class)\n\n');
+    fprintf(fid, '| Class | Parameter | Min | Max |\n');
+    fprintf(fid, '|-------|-----------|-----|-----|\n');
+
+    
+
+    for c = classes
+
+        idx = (y == c);
+        class_params = params(idx);
+
+        if isempty(class_params)
+            continue;
+        end
+
+        param_fields = fieldnames(params(1));
+
+        for f = 1:numel(param_fields)
+            field_name = param_fields{f};
+
+            % Only numeric scalar fields
+            values = [];
+
+            for k = 1:numel(class_params)
+                if isfield(class_params(k), field_name)
+                    val = class_params(k).(field_name);
+            
+                    if isnumeric(val) && isscalar(val)
+                        values(end+1) = val; %#ok<AGROW>
+                    end
+                end
+            end
+
+            if ~isempty(values)
+                fprintf(fid, '| %d | %s | %.6g | %.6g |\n', ...
+                    c, field_name, min(values), max(values));
+            end
+        end
+    end
+
+
+    % Per-Class Statistics
+    fprintf(fid, '\n---\n\n');
+    fprintf(fid, '## 4. Per-Class Signal Statistics\n\n');
+    fprintf(fid, '| Class | Mean | Std | RMS | Checksum |\n');
+    fprintf(fid, '|-------|------|-----|-----|----------|\n');
+
+    for c = classes
+
+        row_idx = report.per_class_stats.class_id == c;
+        
+        if any(row_idx)
+            mean_val = report.per_class_stats.mean(row_idx);
+            std_val  = report.per_class_stats.std(row_idx);
+            rms_val  = report.per_class_stats.rms(row_idx);
+
+            idx = (y == c);
+            Xk = X(:, idx);
+            checksum_val = sum(abs(Xk(:)));
+
+            fprintf(fid, '| %d | %.6g | %.6g | %.6g | %.6g |\n', ...
+                c, mean_val, std_val, rms_val, checksum_val);
+        end
+    end
+
+    
+    % Global Checksum
+    global_checksum = sum(abs(X(:)));
+
+    fprintf(fid, '\n---\n\n');
+    fprintf(fid, '## 5. Dataset Integrity Evidence\n\n');
+    fprintf(fid, 'Global checksum:\n\n');
+    fprintf(fid, '```\n%.12g\n```\n', global_checksum);
+
+    fclose(fid);
+    fprintf('Statistical report generated: %s\n', filename);
+
+end
+
+%%get_active_fields.m
+function fields = get_active_fields(class_id)
+    %GET_ACTIVE_FIELDS Returns required parameter fields per class.
+    %
+    % This defines which fields in params must be populated (non-NaN / non-empty)
+    % for each clean signal class.
+
+    class_id = int32(class_id);
+
+    switch class_id
+
+        case 0  % Single Tone
+            fields = ["A","f0","phi"];
+
+        case 1  % Multi-Tone
+            fields = ["A","f0","phi","K"];
+
+        case 2  % LFM
+            fields = ["A","f0","f1","phi","T"];
+
+        case 3  % SFM
+            fields = ["A","fc","df","fm","beta","phi"];
+
+        case 4  % PBN
+            fields = ["A","fL","fH", "bandwidth", ...
+                "bin_info.nfft","bin_info.freq_res", ...
+                "bin_info.bin_L","bin_info.bin_H","bin_info.phi_bins"];
+
+        case 5  % Noise FM
+            fields = ["A","fc","kappa","phi","fL","fH", "bandwidth", ...
+                "bin_info.nfft","bin_info.freq_res", ...
+                "bin_info.bin_L","bin_info.bin_H","bin_info.phi_bins"];
+
+        case 6  % Frequency Hopping
+            fields = ["A", "hop_info.Lhop", "hop_info.hop_set", ...
+                "hop_info.n_hops", "hop_info.hop_idx", "hop_info.phi_hops"];
+
+        otherwise
+            error("Invalid class_id: %d", class_id);
+
+    end
+end
+
+%%init_clean_param_record.m
+function p = init_clean_param_record(class_id, sample_index)
+
+p = struct( ...
+    'class_id',      int32(class_id), ...
+    'sample_index',  int32(sample_index), ...
+    'A',             NaN, ...
+    'phi',           NaN, ...
+    'f0',            NaN, ...
+    'f1',            NaN, ...
+    'fc',            NaN, ...
+    'df',            NaN, ...
+    'fm',            NaN, ...
+    'T',             NaN, ...
+    'beta',          NaN, ...
+    'kappa',         NaN, ...
+    'K',             NaN, ...
+    'fL',            NaN, ...
+    'fH',            NaN, ...
+    'bandwidth',     NaN, ...
+    'bin_info',      struct(), ...
+    'hop_info',      struct(), ...
+    'lims',          struct(), ...
+    'units',         struct() ...
+);
+
+end
+
+%%report_clean_dataset_v1.m
+function report = report_clean_dataset_v1(clean_dataset)
+%REPORT_CLEAN_DATASET_V1 Produce stats + checksum for clean dataset.
+%
+% Output:
+%   report struct with fields:
+%     - per_class_stats: table (mean, std, rms per class)
+%     - global_checksum: double (sum(abs(X_clean(:))))
+%     - basic_stats: struct
+
+    X = clean_dataset.X_clean;
+    y = clean_dataset.y(:);
+    
+    Ns = size(X,2);
+    classes = unique(y);
+    
+    % Per-class statistics
+    class_ids = zeros(numel(classes),1);
+    mean_vals = zeros(numel(classes),1);
+    std_vals = zeros(numel(classes),1);
+    rms_vals = zeros(numel(classes),1);
+    
+    for k = 1:numel(classes)
+        ck = classes(k);
+        idx = (y == ck);
+        Xk = X(:, idx);
+        
+        class_ids(k) = ck;
+        mean_vals(k) = mean(Xk(:));
+        std_vals(k) = std(Xk(:));
+        rms_vals(k) = sqrt(mean(Xk(:).^2));
+    end
+    
+    per_class_stats = table(class_ids, mean_vals, std_vals, rms_vals, ...
+        'VariableNames', {'class_id', 'mean', 'std', 'rms'});
+    
+    % Basic stats
+    basic_stats = struct();
+    basic_stats.global_mean = mean(X(:));
+    basic_stats.global_std = std(X(:));
+    basic_stats.global_rms = sqrt(mean(X(:).^2));
+    
+    % Checksum (same as your existing meta.checksum)
+    global_checksum = sum(abs(X(:)));
+    
+    % Assemble report
+    report = struct();
+    report.per_class_stats = per_class_stats;
+    report.basic_stats = basic_stats;
+    report.global_checksum = global_checksum;
+    report.N = size(X,1);
+    report.N_samples = Ns;
+end
+
+%%set_sample_rng.m
+function [old_state] = set_sample_rng(spec, class_id, sample_idx)
+    % SET_SAMPLE_RNG Sets a deterministic RNG state for a specific sample.
+    % Returns the current state so you can restore it later.
+    
+      % Seed layout:
+    % [dataset_seed][class_id][sample_idx]
+    % dataset_seed : up to 3 digits
+    % class_id     : up to 3 digits
+    % sample_idx   : up to 6 digits
+
+    
+    %asserting
+    assert(isa(spec.dataset_seed, 'int32'), 'spec.dataset_seed must be int32');
+    assert(isa(class_id, 'int32'), 'class_id must be int32');
+    assert(isa(sample_idx, 'int32'), 'sample_idx must be int32');
+    assert(sample_idx < int32(1e6), 'sample_idx exceeds seed allocation');
+
+    % Seed (0-999), ClassID (0-999), SampleIdx (0-999,999) for uique seed
+    combined_seed = spec.dataset_seed * 1e7 + ...
+                    class_id * 1e5 + ...
+                    sample_idx;
+                
+    % rng expects 32-bit unsigned int
+    final_seed = mod(uint32(combined_seed), 2^32);
+
+    % Apply the state
+    old_state = rng; 
+    rng(final_seed, 'twister'); 
+end
+
+%%synthesize_clean_signal_class0.m
+function x_clean = synthesize_clean_signal_class0(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS0 Generates a pure cosine wave (Class 0).
+    % Single Tone clean signal
+    % x(t) = A * cos(2 * pi * f0 * t + phi)
+
+    % derive time base from spec
+    t = double(0:spec.N-1)' / double(spec.fs);
+
+    % generate signal
+    x_clean = params.A * cos(2 * pi * params.f0 * t + params.phi);
+
+    % asserting
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length must match spec.N.');
+    assert(isreal(x_clean), 'Clean signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class1.m
+function x_clean = synthesize_clean_signal_class1(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS1 Pure synthesis for Multi-Tone (Class 1).
+    % Multi-Tone clean signal
+    % x(t) = sum_{k=1}^K A_k * cos(2 * pi * f_k * t + phi_k)
+
+    % calculate time base
+    t = (double(0:spec.N-1)') / double(spec.fs);
+
+    % initialize signal vector
+    x_clean = zeros(spec.N, 1);
+
+    % accumulate Tones
+    for k = 1:params.K
+
+        A_k  = params.A(k);
+        f_k  = params.f0(k);
+        phi_k = params.phi(k);
+        
+        % Add the tone to the total signal
+        x_clean = x_clean + A_k * cos(2 * pi * f_k * t + phi_k);
+    end
+
+    % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class2.m
+function x_clean = synthesize_clean_signal_class2(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS2 Pure synthesis for LFM (Class 2).
+    %Linear Frequency Modulated clean signal (chirp)
+    % x(t) = A * cos(2 * pi ( f0 * t + 0.5 * k * t * t) + phi),  
+    % where k = (f1 - f0) / T
+    % instantaneous frequency is f(t) = f0 + kt
+
+    % calculate time base
+    t = (double(0:spec.N-1)') / double(spec.fs);
+
+    % generate signal
+    assert(params.T > 0, 'Sweep duration T must be positive.');
+    k = (params.f1 - params.f0) / params.T;
+    
+    x_clean = params.A * cos( 2 * pi * (params.f0 * t + (0.5 * k * t .^ 2)) + params.phi);
+    
+    % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class3.m
+function x_clean = synthesize_clean_signal_class3(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS3 Pure synthesis for Multi-Tone (Class 3).
+    % Sinusoidal Frequency Modulated clean signal 
+    % x(t) = A * cos((2 * pi * fc * t) - (beta * cos (2 * pi * fm * t)) + phi),  
+    % where beta = df / fm
+    % instantaneous frequency is f(t) = fc + df * sin(2 * pi * fm * t)
+
+    % calculate time base
+    t = (double(0:spec.N-1)') / double(spec.fs);
+
+    A  = params.A;
+    fc  = params.fc;
+    fm = params.fm;
+    phi = params.phi;
+    beta = params.beta;
+  
+    % generate signal
+    phase = (2 * pi * fc * t) - (beta * cos (2 * pi * fm * t)) + phi;
+    x_clean = A * cos(phase);
+    
+    % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class4.m
+function x_clean = synthesize_clean_signal_class4(params, spec)
+     % SYNTHESIZE_CLEAN_SIGNAL_CLASS4 Generates PBN signal (Class 4).
+    % Partial Band Noise clean signal
+    
+    A = params.A;
+    nfft = params.bin_info.nfft;
+    bin_L = params.bin_info.bin_L;
+    bin_H = params.bin_info.bin_H;
+    phi_bins = params.bin_info.phi_bins;
+    
+    assert(nfft == spec.N, 'PBN: nfft must equal spec.N for v1.');
+
+    % initialize complex spectrum (zero-filled)
+    X = zeros(nfft, 1);
+    
+    % map stored phases to the positive frequency band
+    X(bin_L : bin_H) = exp(1i * phi_bins);
+     
+    % enforce conjugate symmetry to ge real-valued time signal
+    mirror_idx = nfft - (bin_L : bin_H) + 2;
+    
+    % apply the conjugate of the positive bins to the negative bins
+    X(mirror_idx) = conj(X(bin_L : bin_H));
+    
+    % transform to time domain
+    x_raw = ifft(X, 'symmetric'); 
+    
+    % normalization and scaling
+    s = std(x_raw);
+    assert(s > 0, 'PBN: std(x_raw) is zero; invalid spectrum construction.');
+    x_norm = x_raw / s;
+    
+    x_clean = A * x_norm;
+    
+    % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class5.m
+function x_clean = synthesize_clean_signal_class5(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS5 Generates a Noise FM (Class 5)
+     % x(t) = A * cos( 2*pi*fc*t + 2*pi*kappa*integral + phi0 )
+
+    A = params.A;
+    nfft = params.bin_info.nfft;
+    mod_bin_L = params.bin_info.bin_L;
+    mod_bin_H = params.bin_info.bin_H;
+    mod_phi_bins = params.bin_info.phi_bins;
+    fc = params.fc;
+    kappa = params.kappa;
+    phi0 = params.phi;
+
+    assert(nfft == spec.N, 'NFM: nfft must equal spec.N for v1.');
+
+    % build the modulator signal m(t)
+    M_spectrum = zeros(nfft, 1);
+    M_spectrum(mod_bin_L : mod_bin_H) = exp(1i * mod_phi_bins);
+    
+    % enforce conjugate symmetry for a real modulator
+    mirror_idx = nfft - (mod_bin_L : mod_bin_H) + 2;
+    M_spectrum(mirror_idx) = conj(M_spectrum(mod_bin_L : mod_bin_H));
+    
+    % IFFT to get m(t)
+    m_raw = ifft(M_spectrum, 'symmetric');
+    
+    % Normalize m(t) to have unit standard deviation (RMS)
+    ss = std(m_raw);
+    assert(ss > 0, 'NFM: std(m_raw) is zero; invalid spectrum construction.');
+    m_t = m_raw / ss;
+
+    % enforce zero-mean modulator (important for FM stability)
+    m_t = m_t - mean(m_t);
+    
+    % instantaneous frequency Nyquist safety check
+    f_inst_max = fc + kappa * max(abs(m_t));
+    f_inst_min = fc - kappa * max(abs(m_t));
+
+    assert(f_inst_max < spec.fs/2, 'NFM: instantaneous frequency exceeds Nyquist.');
+    assert(f_inst_min > 0, 'NFM: instantaneous frequency below 0 Hz.');
+
+    % setup Time and Carrier
+    t = (double(0:spec.N-1)') / double(spec.fs);
+    dt = 1 / double(spec.fs);
+    
+    % the integral part - integral of m(tau) from 0 to t
+    m_integral = cumsum(m_t) * dt;
+    
+    % combine for final FM Equation
+    phase = (2 * pi * fc * t) + (2 * pi * kappa * m_integral) + phi0;
+    x_clean = A * cos(phase);
+    
+     % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%synthesize_clean_signal_class6.m
+function x_clean = synthesize_clean_signal_class6(params, spec)
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS6 Pure synthesis for FH signal (Class 6).
+    % Frequency Hopping clean signal
+    % x(t) = sum_{i=1}^I A * cos(2 * pi * f_i * t_i + phi_i); 
+
+    % Initialize output vector
+    x_clean = zeros(spec.N, 1);
+    
+    % Global time base
+    t = double(0:spec.N-1)' / double(spec.fs);
+    
+    A      = params.A;
+    Lhop   = params.hop_info.Lhop;
+    phi_hops   = params.hop_info.phi_hops;
+    hop_set  = params.hop_info.hop_set;
+    n_hops = params.hop_info.n_hops;
+    hop_idx  = params.hop_info.hop_idx;
+    
+    for i = 1:n_hops
+        % get indicies for this segment
+        idx0 = (i-1) * Lhop + 1;
+        idx1   = min(i * Lhop, spec.N);
+        
+        %  frequency, phase and time for this segment
+        f_i = hop_set(hop_idx(i));
+        t_i = t(idx0:idx1);
+        phi_i = phi_hops(i);
+        
+        % generate segment
+        x_clean(idx0:idx1) = A * cos(2 * pi * f_i * t_i + phi_i);
+    end
+    
+    % assertions
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
+    assert(isreal(x_clean), 'Signal must be real-valued.');
+    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+end
+
+%%validate_active_fields
+function validate_active_fields(params, required_fields)
+    %VALIDATE_ACTIVE_FIELDS Enforce parameter contract per class.
+    % Ensures:
+    %   1) All required fields are populated (non-NaN / non-empty)
+    %   2) All non-required numeric scalar fields remain NaN
+    % required_fields is a string array (may contain nested fields like "bin_info.nfft")
+
+    core_fields = ["class_id","sample_index"];
+
+    % Check required fields are populated
+    for i = 1:numel(required_fields)
+        field_path = required_fields(i);
+        value = get_nested_field(params, field_path);
+
+        assert(~isempty(value), ...
+            'Required field "%s" is empty.', field_path);
+
+        if isnumeric(value)
+            assert(~(isscalar(value) && isnan(value)), ...
+                'Required field "%s" is NaN.', field_path);
+        end
+    end
+
+    % Check non-required scalar numeric fields remain NaN
+    all_fields = fieldnames(params);
+
+    for k = 1:numel(all_fields)
+        fname = all_fields{k};
+
+        % skip struct containers
+        if isstruct(params.(fname))
+            continue;
+        end
+
+        % skip if nested field (already handled)
+        if any(startsWith(required_fields, fname + "."))
+            continue;
+        end
+
+        % if field is scalar numeric
+        val = params.(fname);
+        if isnumeric(val) && isscalar(val)
+
+            if ~any(required_fields == fname) && ~any(core_fields == fname)
+                assert(isnan(val), ...
+                    'Field "%s" should remain NaN for this class.', fname);
+            end
+        end
+    end
+end
+
+% Helper: nested field resolver
+function value = get_nested_field(s, field_path)
+    parts = split(field_path, ".");
+    value = s;
+
+    for i = 1:numel(parts)
+        fname = parts{i};
+        assert(isfield(value, fname), ...
+            'Missing nested field "%s".', field_path);
+        value = value.(fname);
+    end
+end
+
+
+%%%%%%%%%%%%%%%%%%%%%%% clean folder finished %%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%% +core folder %%%%%%%%%%%%%%%%%%%%%
+
+%%compute_artifact_hash.m
+function hash = compute_artifact_hash(dataset)
+% Simple deterministic 64-bit checksum over X and y
+
+    if isfield(dataset,'X_clean')
+        X = dataset.X_clean;
+    elseif isfield(dataset,'X_imp')
+        X = dataset.X_imp;
+    else
+        error('compute_artifact_hash:NoSignalField', ...
+              'Dataset must contain X_clean or X_imp.');
+    end
+
+    y = dataset.y;
+
+    % Concatenate numeric content deterministically
+    data = [X(:); double(y(:))];
+
+    % Convert to bytes
+    bytes = typecast(data,'uint8');
+
+    % 64-bit accumulation with wrap
+    hash = uint64(14695981039346656037);
+
+    for i = 1:numel(bytes)
+        hash = hash + uint64(bytes(i));
+    end
+
+    % Force wrap to 64-bit
+    %hash = uint64(mod(double(hash), 2^64));
+end
+
+%%get_canonical_spec.m
+function spec = get_canonical_spec()
+    % GET_CANONICAL_SPEC Returns the parameter spec
+ 
+    % Spec Struct
+    spec.spec_version = "v1";       % MATLAB-PYTHON contract version
+    spec.fs = double(10e6);       % Sampling Frequency (Hz) - 10MHz
+    spec.N = int32(4800);       % Total number of samples 
+    spec.dataset_seed = int32(123);         % For reproducible "randomness"
+    
+end
+
+%%validate_spec_structure.m
+function validate_spec_structure(spec)
+%VALIDATE_SPEC_STRUCTURE Ensure canonical spec integrity.
+
+    assert(isstruct(spec), 'Spec must be a struct.');
+
+    required = ["spec_version","fs","N","dataset_seed"];
+
+    for i = 1:numel(required)
+        assert(isfield(spec, required(i)), ...
+            'Spec missing required field "%s".', required(i));
+    end
+
+    assert(isstring(spec.spec_version) || ischar(spec.spec_version), ...
+        'spec_version must be string.');
+
+    assert(isnumeric(spec.fs) && isscalar(spec.fs) && spec.fs > 0, ...
+        'fs must be positive scalar.');
+
+    assert(isnumeric(spec.N) && isscalar(spec.N) && spec.N > 0, ...
+        'N must be positive scalar.');
+
+    assert(isa(spec.dataset_seed,'int32'), ...
+        'dataset_seed must be int32.');
+end
+
+%%%%%%%%%%% +core folder finished %%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%% +impaired folder %%%%%%%%%%%%%%
+
+%%apply_impairement.m
+function [x_imp, imp_params] = apply_impairment(x_clean, sample_index, spec, mode)
+%APPLY_IMPAIRMENT Deterministic impairment layer (v1).
+%
+% Inputs
+%   x_clean       : (N x 1) or (1 x N) real vector
+%   sample_index  : integer >= 0 (deterministic selector)
+%   spec          : struct with fields:
+%                  - dataset_seed (scalar integer)
+%                  - fs, N (required elsewhere; N enforced here)
+%                  - snr_train_db = [min max] (optional)
+%                  - snr_eval_db  = [min max] (optional)
+%                  - enable_phase_offset (optional, default false)
+%                  - enable_amp_scaling  (optional, default false)
+%                  - phase_range_rad     (optional, default [-pi pi])
+%                  - amp_scale_range     (optional, default [0.8 1.2])
+%   mode          : "train" or "eval"
+%
+% Outputs
+%   x_imp         : impaired + normalized signal, same shape as input
+%   imp_params    : struct (traceability + realized metrics)
+
+    arguments
+        x_clean {mustBeNumeric, mustBeVector}
+        sample_index (1,1) double {mustBeInteger, mustBeNonnegative}
+        spec (1,1) struct
+        mode (1,:) char
+    end
+
+    % Standardize shape (internal)
+    x_shape_row = isrow(x_clean);
+    x = x_clean(:); % column
+    N = numel(x);
+
+    if isfield(spec, 'N')
+        assert(N == spec.N, 'apply_impairment:LengthMismatch', ...
+            'x_clean length (%d) must equal spec.N (%d).', N, spec.N);
+    end
+
+    assert(all(isfinite(x)), 'apply_impairment:NonFiniteInput', 'x_clean contains NaN/Inf.');
+    assert(isreal(x), 'apply_impairment:ComplexInput', 'x_clean must be real (v1 contract).');
+
+    % Policy defaults
+    if ~isfield(spec, 'snr_train_db'), spec.snr_train_db = [-10 5]; end
+    if ~isfield(spec, 'snr_eval_db'),  spec.snr_eval_db  = [10 25]; end
+
+    if ~isfield(spec, 'enable_phase_offset'), spec.enable_phase_offset = false; end
+    if ~isfield(spec, 'enable_amp_scaling'),  spec.enable_amp_scaling  = false; end
+
+    if ~isfield(spec, 'phase_range_rad'), spec.phase_range_rad = [-pi pi]; end
+    if ~isfield(spec, 'amp_scale_range'), spec.amp_scale_range = [0.8 1.2]; end
+
+    mode = lower(string(mode));
+    if mode == "train"
+        snr_range = spec.snr_train_db;
+    elseif mode == "eval"
+        snr_range = spec.snr_eval_db;
+    else
+        error('apply_impairment:BadMode', 'mode must be "train" or "eval".');
+    end
+    assert(numel(snr_range)==2 && snr_range(1) < snr_range(2), ...
+        'apply_impairment:BadSNRRange', 'SNR range must be [min max] with min<max.');
+
+    % Deterministic RNG seed for impairment
+    assert(isfield(spec, 'dataset_seed'), 'apply_impairment:MissingSeed', 'spec.dataset_seed required.');
+    
+    % Use a simple, stable mixing formula
+    base = uint32(mod(double(spec.dataset_seed), 2^32));
+    idx  = uint32(mod(sample_index, 2^32));
+    mix = uint32(1664525) .* idx + uint32(1013904223);
+    imp_seed = double(bitxor(base, mix)); % LCG-like mix
+
+    old_state = rng;
+    rng(imp_seed, 'twister');
+
+    % Draw target SNR uniformly from policy range
+    target_snr_db = snr_range(1) + (snr_range(2) - snr_range(1)) * rand(1,1);
+
+    % Optional amplitude scaling (applied before AWGN)
+    amp_scale = 1.0;
+    if spec.enable_amp_scaling
+        r = spec.amp_scale_range;
+        assert(numel(r)==2 && r(1) > 0 && r(2) > r(1), 'apply_impairment:BadAmpRange', ...
+            'amp_scale_range must be [min max] with 0<min<max.');
+        amp_scale = r(1) + (r(2)-r(1)) * rand(1,1);
+        x = amp_scale * x;
+    end
+
+    % ---- Optional global phase offset ----
+    % NOTE: With a real-only v1 contract, a "phase offset" is ambiguous.
+    % Implemented as a deterministic sign/phase-like operation by mixing with Hilbert analytic phase,
+    % but that yields complex. So for v1 we implement a *global polarity flip* as the only real-safe "phase".
+    % If you later allow complex IQ, replace this block with x = real(x .* exp(1j*phi)).
+    phase_offset_rad = 0.0;
+    if spec.enable_phase_offset
+        r = spec.phase_range_rad;
+        assert(numel(r)==2 && r(2) > r(1), 'apply_impairment:BadPhaseRange', ...
+            'phase_range_rad must be [min max] with max>min.');
+        phase_offset_rad = r(1) + (r(2)-r(1)) * rand(1,1);
+
+        %Real-safe proxy
+        if cos(phase_offset_rad) < 0
+            x = -x;
+        end
+    end
+
+    % Compute signal power
+    P_signal = mean(x.^2);
+    assert(isfinite(P_signal) && P_signal > 0, 'apply_impairment:BadSignalPower', ...
+        'Signal power must be finite and > 0.');
+
+    % Noise variance for target SNR
+    noise_variance = P_signal * 10^(-target_snr_db/10);
+    assert(isfinite(noise_variance) && noise_variance >= 0, 'apply_impairment:BadNoiseVar', ...
+        'Noise variance must be finite and >=0.');
+
+    % Add AWGN
+    n = sqrt(noise_variance) * randn(N,1);
+    x_awgn = x + n;
+
+    % Realized SNR (measured vs clean-after-optional-scaling/polarity)
+    P_noise_realized = mean((x_awgn - x).^2);
+    realized_snr_db = 10*log10(P_signal / max(P_noise_realized, eps));
+
+   % v1 normalization: normalize using CLEAN (pre-noise) RMS, not impaired RMS
+    rms_clean = sqrt(mean(x.^2));
+    assert(isfinite(rms_clean) && rms_clean > 0, 'apply_impairment:BadRMS', 'Clean RMS must be finite and >0.');
+
+    x_norm = x_awgn / rms_clean;
+
+    % store for traceability
+    rms_val = rms_clean;
+
+    tol_db = 1.0;
+    assert(abs(realized_snr_db - target_snr_db) < tol_db, ...
+        'apply_impairment:SNRDeviation', ...
+        'Realized SNR deviates too much from target.');
+
+    % Output shape restore
+    if x_shape_row
+        x_imp = x_norm.'; % row
+    else
+        x_imp = x_norm;   % column
+    end
+
+    assert(all(isfinite(x_imp)), 'apply_impairment:NonFiniteOutput', 'x_imp contains NaN/Inf.');
+
+    % Pack parameters
+    imp_params = impaired.init_imp_param_record();
+    imp_params.impairment_seed   = imp_seed;
+    imp_params.target_snr_db     = target_snr_db;
+    imp_params.realized_snr_db   = realized_snr_db;
+    imp_params.noise_variance    = noise_variance;
+    imp_params.P_signal          = P_signal;
+    imp_params.P_noise_realized  = P_noise_realized;
+    imp_params.amp_scale         = amp_scale;
+    imp_params.phase_offset_rad  = phase_offset_rad;
+    imp_params.normalization_rms = rms_val;
+
+
+    rng(old_state);
+end
+
+%%generate_impaired_datset.m
+function impaired_data = generate_impaired_dataset(clean_dataset, spec, mode)
+%GENERATE_IMPAIRED_DATASET Apply v1 impairment to an existing clean dataset.
+%
+% Inputs
+%   clean_dataset : struct with fields:
+%                   - X_clean (N x Nsamples)
+%                   - y       (Nsamples x 1)
+%                   - params  (Nsamples x 1 struct) or struct array
+%                   - meta    (struct)
+%   spec         : same spec used for clean generation; must include dataset_seed and N
+%   mode         : "train" or "eval"
+%
+% Output
+%   impaired : struct with fields:
+%              - X_imp
+%              - y
+%              - params
+%              - imp_params
+%              - meta
+%              - (optional) X_clean if spec.keep_X_clean == true
+
+    arguments
+        clean_dataset (1,1) struct
+        spec (1,1) struct
+        mode (1,:) char
+    end
+
+    core.validate_spec_structure(spec);
+
+    Xc = clean_dataset.X_clean;
+    y  = clean_dataset.y;
+
+    Ns = size(Xc,2);
+    
+    % Verify signals are in columns (N x Nsamples)
+    N = spec.N;
+    assert(size(Xc,1) == N, 'generate_impaired_dataset:BadShape', ...
+        'X_clean must be (N x Nsamples) with signals in columns.');
+    
+    % Transpose to (Nsamples x N) for apply_impairment
+    Xc_rows = Xc.'; 
+
+    % Ensure y is column and matches
+    y = y(:);
+    assert(numel(y) == Ns, 'generate_impaired_dataset:LabelMismatch', ...
+        'y length must match number of samples.');
+    
+    % Pre-allocate
+    Ximp = zeros(N, Ns, 'double');
+    
+    % Initialize imp_params as empty - we'll build it differently
+    imp_params(Ns,1) = impaired.init_imp_param_record();
+    
+    % Apply impairment deterministically to each sample
+    for i = 1:Ns
+        x_clean_i = Xc_rows(i,:); 
+        [x_imp_i, ip] = impaired.apply_impairment(x_clean_i, i-1, spec, mode);
+        Ximp(:,i) = x_imp_i;
+        imp_params(i) = ip;  % Store in cell array first
+    end
+
+    % Build output struct
+    impaired_data = struct();
+    impaired_data.X_imp      = Ximp;
+    impaired_data.y          = y;
+    if isfield(clean_dataset,'params')
+        impaired_data.params = clean_dataset.params;
+    else
+        impaired_data.params = [];
+    end
+    impaired_data.imp_params = imp_params;
+
+    % Meta
+    meta = struct();
+    if isfield(clean_dataset,'meta'), meta = clean_dataset.meta; end
+    meta.mode = char(string(lower(mode)));
+    meta.dataset_version = char("impaired_dataset_v1");
+
+    % Optional debug retention
+    if isfield(spec,'keep_X_clean') && spec.keep_X_clean
+        impaired_data.X_clean = Xc_rows;
+    end
+ 
+    % Sanity
+    assert(all(isfinite(impaired_data.X_imp(:))), 'generate_impaired_dataset:NonFinite', ...
+        'X_imp contains NaN/Inf.');
+
+    impaired_data.meta = meta;
+
+     % checksum with hash artifact
+    impaired_data.meta.artifact_hash = core.compute_artifact_hash(impaired_data);
+    
+end
+
+%%generate_stat_report_impaired.m
+function generate_stat_report_impaired(impaired_dataset)
+%GENERATE_IMPAIRED_REPORT Generate markdown report from impaired dataset struct.
+%
+% Input:
+%   impaired_dataset : struct from generate_impaired_dataset (saved .mat)
+
+    arguments
+        impaired_dataset (1,1) struct
+    end
+
+    % Get metadata from the dataset itself
+    meta = impaired_dataset.meta;
+    seed = meta.dataset_seed;
+    mode = meta.mode;
+    N = meta.N;  % Add this line
+    Ns = meta.Ns;
+    
+    
+    % Get report data using existing reporter
+    report = impaired.report_impaired_dataset_v1(impaired_dataset);
+    
+    % Create filename
+    filename = sprintf('impaired_dataset_v1_seed%d_%s_report.md', seed, mode);
+    intended_dir = fullfile('reports','statistical');
+    fid = fopen(fullfile(intended_dir, filename), 'w');
+    
+    % Write header
+    fprintf(fid, '# Impaired Dataset Artifact Report\n');
+    fprintf(fid, 'Version: impaired_dataset_v1  \n');
+    fprintf(fid, 'Mode: %s  \n', mode);
+    fprintf(fid, 'Artifact: impaired_dataset_v1_seed%d_%s.mat  \n\n', seed, mode);
+    
+    % Dataset specs
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 1. Dataset Specifications\n\n');
+    fprintf(fid, '| Parameter | Value |\n');
+    fprintf(fid, '|-----------|-------|\n');
+    fprintf(fid, '| dataset_seed | %d |\n', seed);
+    fprintf(fid, '| N (signal length) | %d samples |\n', N);
+    fprintf(fid, '| N_samples | %d |\n', Ns);
+    fprintf(fid, '| Mode | %s |\n\n', mode);
+    
+    % Global checksum
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 2. Integrity Evidence\n\n');
+    fprintf(fid, 'Global checksum (FNV-1a 64-bit):\n\n');
+    fprintf(fid, '```\n%u\n```\n\n', report.global_checksum);
+    
+    % SNR statistics
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 3. SNR Statistics (dB)\n\n');
+    fprintf(fid, '| Metric | Target | Realized |\n');
+    fprintf(fid, '|--------|--------|----------|\n');
+    fprintf(fid, '| Min | %.2f | %.2f |\n', report.basic_stats.target_min, report.basic_stats.realized_min);
+    fprintf(fid, '| Max | %.2f | %.2f |\n', report.basic_stats.target_max, report.basic_stats.realized_max);
+    fprintf(fid, '| Mean | %.2f | %.2f |\n', report.basic_stats.target_mean, report.basic_stats.realized_mean);
+    fprintf(fid, '| Std | - | %.2f |\n\n', report.basic_stats.realized_std);
+    
+    % Per-class realized SNR
+    fprintf(fid, '---\n\n');
+    fprintf(fid, '## 4. Per-Class Realized SNR (dB)\n\n');
+    fprintf(fid, '| Class ID | Mean Realized SNR |\n');
+    fprintf(fid, '|----------|-------------------|\n');
+    
+    pc = report.per_class_mean_realized;
+    for i = 1:height(pc)
+        fprintf(fid, '| %d | %.2f |\n', pc.class_id(i), pc.mean_realized_snr_db(i));
+    end
+    
+    % Optional: first few samples for inspection
+    fprintf(fid, '\n---\n\n');
+    fprintf(fid, '## 5. First 5 Samples Preview\n\n');
+    fprintf(fid, '| Sample Index | Target SNR | Realized SNR |\n');
+    fprintf(fid, '|--------------|------------|--------------|\n');
+    
+    for i = 1:min(5, length(report.snr_target))
+        fprintf(fid, '| %d | %.2f | %.2f |\n', i-1, report.snr_target(i), report.snr_realized(i));
+    end
+    
+    fclose(fid);
+    fprintf('Impaired dataset report generated: %s\n', filename);
+end
+
+%%init_imp_param_record.m
+function p = init_imp_param_record()
+
+p = struct( ...
+    'impairment_seed', NaN, ...
+    'target_snr_db', NaN, ...
+    'realized_snr_db', NaN, ...
+    'noise_variance', NaN, ...
+    'P_signal', NaN, ...
+    'P_noise_realized', NaN, ...
+    'amp_scale', NaN, ...
+    'phase_offset_rad', NaN, ...
+    'normalization_rms', NaN ...
+);
+
+end
+
+%%report_impaired_datset_v1.m
+function report = report_impaired_dataset_v1(impaired_dataset)
+%REPORT_IMPAIRED_DATASET_V1 Produce SNR stats + checksum for determinism evidence.
+%
+% Output:
+%   report struct with fields:
+%     - snr_target: [Ns x 1]
+%     - snr_realized: [Ns x 1]
+%     - per_class_mean_realized: table
+%     - global_checksum: uint64 (FNV-1a over bytes of X_imp)
+%     - basic_stats: struct
+
+    X = impaired_dataset.X_imp;
+    y = impaired_dataset.y(:);
+    ip = impaired_dataset.imp_params;
+
+    Ns = size(X,2);
+
+    snr_t = zeros(Ns,1);
+    snr_r = zeros(Ns,1);
+    for i=1:Ns
+        snr_t(i) = ip(i).target_snr_db;
+        snr_r(i) = ip(i).realized_snr_db;
+    end
+
+    classes = unique(y);
+    mean_r = zeros(numel(classes),1);
+    for k=1:numel(classes)
+        ck = classes(k);
+        mean_r(k) = mean(snr_r(y==ck));
+    end
+    per_class_mean_realized = table(classes, mean_r, 'VariableNames', {'class_id','mean_realized_snr_db'});
+
+    % Basic distribution stats
+    basic_stats = struct();
+    basic_stats.target_min = min(snr_t);
+    basic_stats.target_max = max(snr_t);
+    basic_stats.target_mean = mean(snr_t);
+    basic_stats.realized_min = min(snr_r);
+    basic_stats.realized_max = max(snr_r);
+    basic_stats.realized_mean = mean(snr_r);
+    basic_stats.realized_std = std(snr_r);
+
+    % Checksum 
+    global_checksum = impaired_dataset.meta.artifact_hash;
+
+    report = struct();
+    report.snr_target = snr_t;
+    report.snr_realized = snr_r;
+    report.per_class_mean_realized = per_class_mean_realized;
+    report.basic_stats = basic_stats;
+    report.global_checksum = global_checksum;
+end
+
+
+%%%%%%%%%%%%% +impaired folder finished %%%%%%%%%%%%%%%%
+
+
+%scripts folder also has .py pipeline files
+
+%%%%%% scripts folder related to matlab %%%%%%%%
+
+
+%%run_clean_pipeline.m
+function dataset = run_clean_pipeline(spec, n_per_class, dataset_seed)
+%RUN_CLEAN_PIPELINE Master orchestrator for clean dataset generation.
+%
+% Inputs:
+%   spec          : canonical spec struct (without dataset_seed required)
+%   n_per_class   : number of samples per class
+%   dataset_seed  : deterministic seed for this dataset instance
+%
+% Output:
+%   dataset       : clean dataset struct
+
+
+    arguments
+        spec (1,1) struct
+        n_per_class (1,1) double {mustBeInteger, mustBePositive}
+        dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
+    end
+
+    project_root = fileparts(fileparts(mfilename('fullpath')));
+    addpath(genpath(fullfile(project_root, 'matlab')));
+
+    % Inject seed (do NOT mutate original spec)
+    spec_local = spec;
+    spec_local.dataset_seed = int32(dataset_seed);
+
+    % Ensure folders exist
+    if ~exist('artifacts','dir'); mkdir('artifacts'); end
+    if ~exist('reports','dir');   mkdir('reports');   end
+
+    fprintf('=== CLEAN PIPELINE START ===\n');
+    fprintf('Seed: %d | n_per_class: %d\n', dataset_seed, n_per_class);
+
+    % Generate dataset
+    dataset = clean.generate_clean_dataset(n_per_class, spec_local);
+
+    % Save artifact
+    filename = sprintf('clean_dataset_v1_seed%d.mat', dataset_seed);
+    output_dir = fullfile('artifacts', 'datasets','clean');
+    save(fullfile(output_dir, filename), 'dataset', '-v7.3');
+
+    % Generate report
+    clean.generate_stat_report_clean(dataset);
+
+    fprintf('=== CLEAN PIPELINE COMPLETE ===\n');
+end
+
+
+%%run_impaired_pipeline.m
+function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, mode)
+%RUN_IMPAIRED_PIPELINE Master orchestrator for impaired dataset generation.
+%
+% Inputs:
+%   spec          : canonical spec struct
+%   n_per_class   : samples per class
+%   dataset_seed  : deterministic seed
+%   mode          : 'train' or 'eval'
+%
+% Output:
+%   impaired      : impaired dataset struct
+
+    arguments
+        spec (1,1) struct
+        n_per_class (1,1) double {mustBeInteger, mustBePositive}
+        dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
+        mode (1,:) char
+    end
+
+    project_root = fileparts(fileparts(mfilename('fullpath')));
+    addpath(genpath(fullfile(project_root, 'matlab')));
+
+    mode = string(lower(mode));
+    if mode ~= "train" && mode ~= "eval"
+        error('run_impaired_pipeline:BadMode', ...
+              'Mode must be "train" or "eval".');
+    end
+
+    % Inject seed
+    spec_local = spec;
+    spec_local.dataset_seed = int32(dataset_seed);
+
+    % Ensure folders exist
+    if ~exist('artifacts','dir'); mkdir('artifacts'); end
+    if ~exist('reports','dir');   mkdir('reports');   end
+
+    fprintf('=== IMPAIRED PIPELINE START ===\n');
+    fprintf('Seed: %d | n_per_class: %d | Mode: %s\n', ...
+            dataset_seed, n_per_class, mode);
+
+    % Step 1: generate clean baseline
+    clean_dataset = clean.generate_clean_dataset(n_per_class, spec_local);
+
+    % Step 2: generate impaired dataset
+    impaired_data = impaired.generate_impaired_dataset(clean_dataset, spec_local, mode);
+
+    % Save artifact
+    filename = sprintf('impaired_dataset_v1_seed%d_%s.mat', ...
+                        dataset_seed, mode);
+    output_dir = fullfile('artifacts','datasets','impaired');
+    save(fullfile(output_dir, filename), 'impaired_data', '-v7.3');
+
+    % Generate report
+    impaired.generate_stat_report_impaired(impaired_data);
+
+    fprintf('=== IMPAIRED PIPELINE COMPLETE ===\n');
+end
+
+
+%%%%%%%%%%%%%%% scripts folder related to matlab finished %%%%%%%%%%%%
+

@@ -123,7 +123,7 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             % constraints
             lims.A  = [0.8, 1.2];
             lims.fL = [0.05 * nyquist, 0.6 * nyquist]; % 5% to 60% of Nyquist
-            lims.BW = [0.05 * nyquist, 0.25 * nyquist]; % 5% and 25% of Nyquist
+            lims.BW = [0.1 * nyquist, 0.25 * nyquist]; % 5% and 25% of Nyquist
             lims.phi = [0, 2*pi];
             
             % amplitude scale
