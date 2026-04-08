@@ -18,9 +18,9 @@ def main():
 
     models = ["ts_ms_va_drsn"]
     spec_version = "v2"
-    seeds = [17]
-    n_per_class = [400]
-    epochs = 50
+    seeds = [32]
+    n_per_class = [1000]
+    epochs = 30
 
     for m in models:
         for s in seeds:

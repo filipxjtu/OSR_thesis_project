@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
+def compute_stft(x: np.ndarray, win_length: int = 128, hop_length: int = 32, n_fft: int = 256) -> np.ndarray:
 
-def compute_stft(x: np.ndarray, win_length: int = 128, hop_length: int = 64, n_fft: int = 128) -> np.ndarray:
-
-    """ Deterministic STFT with No padding and No centering """
+    """ Deterministic STFT with phase preservation """
 
     if x.ndim != 1:
         raise ValueError("STFT expects 1D signal.")
@@ -16,15 +15,19 @@ def compute_stft(x: np.ndarray, win_length: int = 128, hop_length: int = 64, n_f
     for start in range(0, len(x) - win_length + 1, hop_length):
         segment = x[start:start + win_length]
         segment = segment * window
-        spectrum = np.fft.rfft(segment, n=n_fft)
-        magnitude = np.abs(spectrum)
-        frames.append(magnitude)
 
-    s = np.stack(frames, axis=1)  # (freq_bins, time_frames)
-    s = np.log1p(s)
+        # full FFT
+        spectrum = np.fft.fft(segment, n=n_fft)
+        spectrum = np.fft.fftshift(spectrum)
 
-    mean_val = np.mean(s)
-    if mean_val > 0:
-        s = s / mean_val
-        #S = (S - np.mean(S)) / (np.std(S) + 1e-8)
+        mag = np.abs(spectrum)
+        log_mag = np.log1p(mag)
+
+        frames.append(np.expand_dims(log_mag, axis=0))   #(1,F) per frame
+
+    if len(frames) == 0:
+        raise ValueError("BadSTFT: zero frames. Check signal length vs win_length.")
+
+    s = np.stack(frames, axis=2)  # (c=1, F, T)
+
     return s

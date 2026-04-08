@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import TensorDataset, Subset
 
 
-def split_dataset(x: torch.Tensor, y: torch.Tensor, train_ratio: float = 0.8, seed: int = 42):
+def split_dataset(x_stft: torch.Tensor, x_iq: torch.Tensor, y: torch.Tensor, train_ratio: float = 0.8, seed: int = 42):
 
     """ Deterministic stratified train/val split. Ensures class proportions are preserved. """
 
@@ -32,7 +32,7 @@ def split_dataset(x: torch.Tensor, y: torch.Tensor, train_ratio: float = 0.8, se
     train_indices = torch.cat(train_indices)
     val_indices = torch.cat(val_indices)
 
-    dataset = TensorDataset(x, y)
+    dataset = TensorDataset(x_stft, x_iq, y)
 
     train_set = Subset(dataset, train_indices)
     val_set = Subset(dataset, val_indices)

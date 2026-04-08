@@ -4,7 +4,6 @@ function validate_spec_structure(spec)
     assert(isstruct(spec), 'Spec must be a struct.');
 
     required = ["spec_version","fs","N","dataset_seed"];
-
     for i = 1:numel(required)
         assert(isfield(spec, required(i)), ...
             'Spec missing required field "%s".', required(i));
@@ -12,13 +11,55 @@ function validate_spec_structure(spec)
 
     assert(isstring(spec.spec_version) || ischar(spec.spec_version), ...
         'spec_version must be string.');
-
     assert(isnumeric(spec.fs) && isscalar(spec.fs) && spec.fs > 0, ...
         'fs must be positive scalar.');
-
     assert(isnumeric(spec.N) && isscalar(spec.N) && spec.N > 0, ...
         'N must be positive scalar.');
-
     assert(isa(spec.dataset_seed,'int32'), ...
         'dataset_seed must be int32.');
+    assert(isfield(spec, 'class_ids'), ...
+    'Spec missing class_ids.');
+        assert(isfield(spec, 'unknown_class_ids'), ...
+    'Spec missing unknown_class_ids.');
+
+    assert(isnumeric(spec.class_ids), ...
+        'class_ids must be numeric.');
+    assert(all(spec.class_ids == int32(0:9)), ...
+        'class_ids must be int32(0:9).');
+
+        assert(isnumeric(spec.unknown_class_ids), ...
+        'class_ids must be numeric.');
+    assert(all(spec.unknown_class_ids == int32(10:13)), ...
+        'unknown_class_ids must be int32(10:13).');
+
+    % snr fields
+    assert(isfield(spec,'snr_mode'), 'Missing snr_mode.');
+    assert(any(strcmp(spec.snr_mode, ["range","fixed"])), ...
+        'snr_mode must be "range" or "fixed".');
+    assert(isfield(spec,'snr_train_db') && numel(spec.snr_train_db)==2, ...
+        'snr_train_db must be [min max].');
+    assert(isfield(spec,'snr_eval_db') && numel(spec.snr_eval_db)==2, ...
+        'snr_eval_db must be [min max].');
+    assert(isfield(spec,'snr_fixed_db'), ...
+        'Missing snr_fixed_db.');
+
+    % ocillator effects fields
+    assert(isfield(spec,'enable_cfo'), 'Missing enable_cfo.');
+    assert(isfield(spec,'cfo_hz_range') && numel(spec.cfo_hz_range)==2, ...
+        'cfo_hz_range must be [min max].');
+    assert(isfield(spec,'enable_phase_noise'), 'Missing enable_phase_noise.');
+    assert(isfield(spec,'phase_noise_std_range') && numel(spec.phase_noise_std_range)==2, ...
+        'phase_noise_std_range must be [min max].');
+
+    % channel
+    assert(isfield(spec,'enable_channel'), 'Missing enable_channel.');
+    assert(isfield(spec,'channel_model'), 'Missing channel_model.');
+    assert(strcmp(spec.channel_model,"ricean_2tap"), ...
+        'Only "ricean_2tap" is supported.');
+    assert(isfield(spec,'rice_k_db'), 'Missing rice_k_db.');
+    assert(isfield(spec,'delay_samp_range') && numel(spec.delay_samp_range)==2, ...
+        'delay_samp_range must be [min max].');
+    assert(isfield(spec,'echo_gain_db_range') && numel(spec.echo_gain_db_range)==2, ...
+        'echo_gain_db_range must be [min max].');
+
 end

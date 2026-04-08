@@ -9,14 +9,14 @@ from .exceptions import ArtifactLoadError
 from .dataset_artifact import DatasetArtifact
 
 
-def load_artifact(path: str | Path) -> DatasetArtifact:
+def load_artifact(path: str | Path, load_params: bool = True) -> DatasetArtifact:
 
     """  loader for MATLAB v7.3 (.mat HDF5) artifacts.  """
 
     project_root = Path(__file__).resolve().parents[3]
     data_root = project_root / 'artifacts' / 'datasets'
 
-    folders_to_check = ['clean', 'impaired']
+    folders_to_check = ['clean', 'impaired', 'unknown']
 
     p = None
     for folder in folders_to_check:
@@ -32,7 +32,7 @@ def load_artifact(path: str | Path) -> DatasetArtifact:
 
     try:
         with h5py.File(p, "r") as f:
-            artifact = validate_and_normalize(f, path=str(p))
+            artifact = validate_and_normalize(f, path=str(p), load_params=load_params)
             return artifact
     except ArtifactLoadError:
         raise

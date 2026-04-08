@@ -1,17 +1,17 @@
 function dataset = generate_clean_dataset(n_per_class, spec)
-
-    core.validate_spec_structure(spec);
     
-    TotalSamples = 7 * n_per_class;
+    class_set = spec.class_ids;
+    num_classes = numel(class_set);
+    TotalSamples = num_classes * n_per_class;
 
     % Preallocate correctly
-    X_clean = zeros(spec.N, TotalSamples);
+    X_clean = complex(zeros(spec.N, TotalSamples));
     y = zeros(TotalSamples, 1, 'int32');
     params(TotalSamples,1) = clean.init_clean_param_record(0, 0);
 
     % Deterministic generation loop
     idx = 1;
-    for class_id = 0:6
+    for class_id = class_set
         for sample_idx = 0:(n_per_class-1)
 
             [x_clean, label, p] = clean.generate_clean_sample(class_id, sample_idx, spec);
@@ -40,13 +40,13 @@ function dataset = generate_clean_dataset(n_per_class, spec)
     dataset.meta.dataset_seed      = spec.dataset_seed;
     dataset.meta.artifact_hash_fn  = char("simple64_checksum");
     dataset.meta.layout            = char("N_by_Ns_columns_are_samples");
-    dataset.meta.dtype_policy      = char("float64_X_int32_y");
+    dataset.meta.dtype_policy      = char("complex128_X_int32_y");
     dataset.meta.N                 = spec.N;
     dataset.meta.fs                = spec.fs;
     dataset.meta.Ns                = TotalSamples;
     dataset.meta.n_per_class       = n_per_class;
-    dataset.meta.class_set         = int32(0:6);
-    dataset.meta.dataset_version   = char("clean_dataset_v1");
+    dataset.meta.class_set         = class_set;
+    dataset.meta.dataset_version   = char("clean_dataset_v2");
     dataset.meta.created_utc       = char(string(datetime("now","TimeZone","UTC","Format","yyyy-MM-dd'T'HH:mm:ss'Z'")));
     
     % checksum with hash artifact
@@ -54,8 +54,6 @@ function dataset = generate_clean_dataset(n_per_class, spec)
     
     % Validation block 
     assert(all(isfinite(dataset.X_clean(:))), 'Dataset contains non-finite values.');
-    assert(isreal(dataset.X_clean), 'Dataset must be real.');
     assert(size(dataset.X_clean,1) == spec.N, 'Incorrect signal length.');
     assert(numel(dataset.y) == size(dataset.X_clean,2), 'Label mismatch.');
-    assert((spec.spec_version == dataset.meta.spec_version), 'Spec version mismatch.');
 end

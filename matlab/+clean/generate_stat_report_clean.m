@@ -1,5 +1,5 @@
 function generate_stat_report_clean(dataset)
-    % ------------------------------------------------------------
+    
 
     % Basic validation
     assert(isstruct(dataset), 'Input must be a dataset struct.');
@@ -13,9 +13,9 @@ function generate_stat_report_clean(dataset)
     params = dataset.params;
     meta = dataset.meta;
 
-    classes = 0:6;
-    %n_classes = numel(classes);
-
+    classes = meta.class_set(:);
+    n_classes = numel(classes);
+   
     % Dataset size
     n_per_class = meta.n_per_class;
     total_samples = meta.Ns;
@@ -26,7 +26,7 @@ function generate_stat_report_clean(dataset)
 
 
     % Generate report using the report generator function
-    report = clean.report_clean_dataset_v1(dataset);
+    report = clean.report_clean_dataset_v2(dataset);
 
     % Prepare file
     filename = sprintf( ...
@@ -34,11 +34,15 @@ function generate_stat_report_clean(dataset)
         spec_version, seed, n_per_class);
     
     intended_dir = fullfile('reports','statistical');
+    if ~exist(intended_dir, 'dir')
+        mkdir(intended_dir);
+    end
     fid = fopen(fullfile(intended_dir, filename), 'w');
 
     fprintf(fid, '# Clean Dataset Artifact Report (Mathematical Summary)\n');
     fprintf(fid, 'Version: %s  \n', spec_version);
-    fprintf(fid, 'Artifact: clean_dataset_%s_seed%d.mat  \n\n',spec_version, seed);
+    fprintf(fid, 'Artifact: clean_dataset_%s_seed%d_n%d.mat  \n\n', ...
+        spec_version, seed, n_per_class);
     
     % Specification Section
     fprintf(fid, '---\n\n');
@@ -55,7 +59,7 @@ function generate_stat_report_clean(dataset)
     fprintf(fid, '## 2. Dataset Size\n\n');
     fprintf(fid, '| Quantity | Value |\n');
     fprintf(fid, '|----------|-------|\n');
-    fprintf(fid, '| Classes | 7 (0–6) |\n');
+    fprintf(fid, '| Classes | %d |\n', n_classes);
     fprintf(fid, '| n_per_class | %d |\n', n_per_class);
     fprintf(fid, '| total_samples | %d |\n', total_samples);
     fprintf(fid, '| Matrix shape (X_clean) | %d × %d |\n\n', N, total_samples);
@@ -66,9 +70,8 @@ function generate_stat_report_clean(dataset)
     fprintf(fid, '| Class | Parameter | Min | Max |\n');
     fprintf(fid, '|-------|-----------|-----|-----|\n');
 
-    
-
-    for c = classes
+    for c_idx = 1:n_classes
+        c = classes(c_idx);
 
         idx = (y == c);
         class_params = params(idx);
@@ -78,6 +81,7 @@ function generate_stat_report_clean(dataset)
         end
 
         param_fields = fieldnames(params(1));
+        assert(~isempty(param_fields), 'Parameter schema is empty.');
 
         for f = 1:numel(param_fields)
             field_name = param_fields{f};
@@ -109,7 +113,8 @@ function generate_stat_report_clean(dataset)
     fprintf(fid, '| Class | Mean | Std | RMS | Checksum |\n');
     fprintf(fid, '|-------|------|-----|-----|----------|\n');
 
-    for c = classes
+    for c_idx = 1:n_classes
+        c = classes(c_idx);
 
         row_idx = report.per_class_stats.class_id == c;
         
@@ -127,14 +132,10 @@ function generate_stat_report_clean(dataset)
         end
     end
 
-    
-    % Global Checksum
-    global_checksum = sum(abs(X(:)));
-
     fprintf(fid, '\n---\n\n');
     fprintf(fid, '## 5. Dataset Integrity Evidence\n\n');
     fprintf(fid, 'Global checksum:\n\n');
-    fprintf(fid, '```\n%.12g\n```\n', global_checksum);
+    fprintf(fid, '```\n%.12g\n```\n', report.global_checksum);
 
     fclose(fid);
     fprintf('Statistical report generated: %s\n', filename);

@@ -1,85 +1,170 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Callable, Any
 
-from ..dataio import load_artifact
-from ..preprocessing import build_feature_tensor
+from .types import DatasetBundle
+from .checks import (
+    Thresholds,
+    check_no_nan_inf,
+    check_time_domain_stats,
+    check_freq_domain_stats,
+    check_phase_domain_stats,
+    check_class_balance,
+    check_known_cross_mode_separation,
+    check_unknown_separation,
+)
+from .repro import check_reproducibility, ReproConfig
+from .exceptions import FailedCheck
+from .summary import ValidationSummary
 
-from .runner import validate_all, ValidationConfig
-from .types import DatasetBundle, DatasetView
+
+VALIDATOR_VERSION = "v2.0"
+
+# Helper
+def _collect_check_ids(fails: list[FailedCheck]) -> list[str]:
+    return [f.check_id for f in fails]
 
 
-# adapter
-class ArtifactAdapter(DatasetView):
-    def __init__(self, name: str, artifact):
-        self._name = name
-        self._artifact = artifact
-        self._X_feat, self._y_feat = build_feature_tensor(artifact)
+def _unique(seq: list[str]) -> list[str]:
+    return sorted(list(set(seq)))
 
-    @property
-    def name(self) -> str:
-        return self._name
 
-    def x_time(self):
-        return self._artifact.X
-
-    def y(self):
-        return self._artifact.y.reshape(-1).astype("int64")
-
-    def x_feat(self):
-        return self._X_feat
-
-    def meta(self):
-        return self._artifact.meta
-
-# validation gate
 def run_validation_gate(
-    *,
-    clean_file: str,
-    train_file: str,
-    eval_file: str,
-    spec_version: str,
+    bundle: DatasetBundle,
+    fs_hz: float,
     n_classes: int,
-    report_name: str,
-    enable_feature_checks: bool,
-    partial_features_check: bool,
-    enable_repro_check: bool,
-    repro_trial,
-) -> None:
-    """
-    Executes full dataset validation and raise ValidationError if failed.
-    Saves JSON summary if validation PASS.
-    """
+    thresholds: Thresholds | None = None,
+    repro_loader: Callable[[], DatasetBundle] | None = None,
+    repro_config: ReproConfig | None = None,
+    partial_features_check: bool = False,
+) -> ValidationSummary:
 
-    clean_artifact = load_artifact(clean_file)
-    train_artifact = load_artifact(train_file)
-    eval_artifact  = load_artifact(eval_file)
+    th = thresholds or Thresholds()
 
-    bundle = DatasetBundle(
-        clean=ArtifactAdapter("clean", clean_artifact),
-        impaired_train=ArtifactAdapter("impaired_train", train_artifact),
-        impaired_eval=ArtifactAdapter("impaired_eval", eval_artifact),
-    )
+    checks_failed: list[str] = []
+    checks_passed: list[str] = []
+    metrics: dict[str, Any] = {}
+    notes: list[str] = []
 
-    config = ValidationConfig(
-        spec_version_expected=spec_version,
-        n_classes_expected=n_classes,
-        enable_feature_checks=enable_feature_checks,
+
+    # Numeric domain
+    fails = check_no_nan_inf(bundle)
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("C001.no_nan_inf_time")
+
+    metrics["numeric"] = {"passed": len(fails) == 0}
+
+
+    # Time-domain
+    fails, m = check_time_domain_stats(bundle, th)
+    metrics["time"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("time_domain_stats")
+
+
+    # Frequency-domain
+    fails, m = check_freq_domain_stats(bundle, fs_hz, th)
+    metrics["frequency"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("freq_domain_stats")
+
+
+    # Phase-domain
+    fails, m = check_phase_domain_stats(bundle, th)
+    metrics["phase"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("phase_domain_stats")
+
+
+    # Class balance
+    fails, m = check_class_balance(bundle, n_classes)
+    metrics["class_balance"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("class_balance")
+
+
+    # Known separation
+    fails, m = check_known_cross_mode_separation(
+        bundle,
+        fs_hz,
+        th,
         partial_features_check=partial_features_check,
-        enable_repro_check=enable_repro_check,
-        repro_trials=repro_trial,
+    )
+    metrics["known_separation"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        checks_passed.append("known_separation")
+
+
+    # Unknown separation
+    fails, m = check_unknown_separation(bundle, th)
+    metrics["unknown_separation"] = m
+
+    if fails:
+        checks_failed.extend(_collect_check_ids(fails))
+    else:
+        if not bundle.has_unknown:
+            notes.append("Unknown dataset not provided → unknown checks skipped")
+        else:
+            checks_passed.append("unknown_separation")
+
+
+    # Reproducibility
+    if repro_loader is not None:
+        rc = repro_config or ReproConfig()
+
+        fails, m = check_reproducibility(
+            loader=repro_loader,
+            fs_hz=fs_hz,
+            n_classes=n_classes,
+            th=th,
+            rc=rc,
+        )
+
+        metrics["reproducibility"] = m
+
+        if fails:
+            checks_failed.extend(_collect_check_ids(fails))
+        else:
+            checks_passed.append("reproducibility")
+
+    else:
+        metrics["reproducibility"] = {
+            "skipped": True,
+            "reason": "no loader provided",
+        }
+        notes.append("Reproducibility check skipped")
+
+    # Finalize
+    checks_failed = _unique(checks_failed)
+    checks_passed = _unique(checks_passed)
+
+    status = "PASS" if len(checks_failed) == 0 else "FAIL"
+
+    summary = ValidationSummary(
+        validator_version=VALIDATOR_VERSION,
+        status=status,
+        checks_passed=checks_passed,
+        checks_failed=checks_failed,
+        metrics=metrics,
+        thresholds=th.__dict__,
+        notes=notes,
     )
 
-    summary = validate_all(
-        bundle=bundle,
-        config=config,
-    )
-
-    # Save report
-    project_root = Path(__file__).resolve().parents[3]
-    report_dir = project_root / "reports" / "validations"
-    report_dir.mkdir(parents=True, exist_ok=True)
-
-    report_path = report_dir / report_name
-    summary.save_json(report_path)
-    print(f"\nValidation report saved to: {report_path}")
+    return summary

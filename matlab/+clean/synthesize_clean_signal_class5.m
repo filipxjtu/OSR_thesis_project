@@ -1,58 +1,75 @@
 function x_clean = synthesize_clean_signal_class5(params, spec)
-    % SYNTHESIZE_CLEAN_SIGNAL_CLASS5 Generates a Noise FM (Class 5)
-     % x(t) = A * cos( 2*pi*fc*t + 2*pi*kappa*integral + phi0 )
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS5
+% Frequency Hopping Jamming with:
+% - discrete frequency grid
+% - PLL transient (amplitude suppression)
+% - phase reset per hop
 
-    A = params.A;
-    nfft = params.bin_info.nfft;
-    mod_bin_L = params.bin_info.bin_L;
-    mod_bin_H = params.bin_info.bin_H;
-    mod_phi_bins = params.bin_info.phi_bins;
-    fc = params.fc;
-    kappa = params.kappa;
-    phi0 = params.phi;
+    N  = double(spec.N);
+    fs = double(spec.fs);
 
-    assert(nfft == spec.N, 'NFM: nfft must equal spec.N for v1.');
+    hop_info = params.hop_info;
 
-    % build the modulator signal m(t)
-    M_spectrum = zeros(nfft, 1);
-    M_spectrum(mod_bin_L : mod_bin_H) = exp(1i * mod_phi_bins);
-    
-    % enforce conjugate symmetry for a real modulator
-    mirror_idx = nfft - (mod_bin_L : mod_bin_H) + 2;
-    M_spectrum(mirror_idx) = conj(M_spectrum(mod_bin_L : mod_bin_H));
-    
-    % IFFT to get m(t)
-    m_raw = ifft(M_spectrum, 'symmetric');
-    
-    % Normalize m(t) to have unit standard deviation (RMS)
-    ss = std(m_raw);
-    assert(ss > 0, 'NFM: std(m_raw) is zero; invalid spectrum construction.');
-    m_t = m_raw / ss;
+    x = complex(zeros(N,1));
 
-    % enforce zero-mean modulator (important for FM stability)
-    m_t = m_t - mean(m_t);
-    
-    % instantaneous frequency Nyquist safety check
-    f_inst_max = fc + kappa * max(abs(m_t));
-    f_inst_min = fc - kappa * max(abs(m_t));
+    idx_start = 1;
 
-    assert(f_inst_max < spec.fs/2, 'NFM: instantaneous frequency exceeds Nyquist.');
-    assert(f_inst_min > 0, 'NFM: instantaneous frequency below 0 Hz.');
+    for h = 1:hop_info.H
 
-    % setup Time and Carrier
-    t = (double(0:spec.N-1)') / double(spec.fs);
-    dt = 1 / double(spec.fs);
-    
-    % the integral part - integral of m(tau) from 0 to t
-    m_integral = cumsum(m_t) * dt;
-    
-    % combine for final FM Equation
-    phase = (2 * pi * fc * t) + (2 * pi * kappa * m_integral) + phi0;
-    x_clean = A * cos(phase);
-    
-     % assertions
+        Lh = hop_info.Lh(h);
+        idx_end = idx_start + Lh - 1;
+
+        n_local = (0:Lh-1)';
+        t_local = n_local / fs;
+
+        f_h = hop_info.f_grid(hop_info.hop_idx(h));
+        phi_h = hop_info.phi_h(h);
+
+        % Base tone
+        s = exp(1i * (2*pi*f_h*t_local + phi_h));
+
+        % PLL transient window
+        N_trans = hop_info.N_trans(h);
+
+        w = ones(Lh,1);
+        if N_trans > 1
+            n_ramp = (0:N_trans-1)';
+            
+             % amplitude ramp (half-Hamming(Hamm: 0.54 - 0.46*cos(2*pi*n/(N-1))
+            amp_ramp = 0.54 - 0.46 * cos(pi * n_ramp / (N_trans - 1));
+            w(1:N_trans) = amp_ramp; % store in window
+
+            % phase settling
+            tau = N_trans/3;   % time constant (settle by end of transiet)
+            phase_error = ((2*rand()-1) * 0.3) * exp(-n_ramp / tau); % bounded random intial offset
+            phase_settle = exp(1i * phase_error);
+
+            % apply both to tone segment
+            s(1:N_trans) = phase_settle .* s(1:N_trans);
+        end
+
+        s_glitch = w .* s;
+
+        % Insert into signal
+        x(idx_start:idx_end) = s_glitch;
+
+        idx_start = idx_end + 1;
+    end
+
+    % amplitude
+    x = params.A * x;
+
+    % Normalize
+    rms_val = sqrt(mean(abs(x).^2));
+    assert(rms_val > 0, 'FHJ: RMS is zero before normalization.');
+    x_clean = x / rms_val;
+
+    % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
-    assert(isreal(x_clean), 'Signal must be real-valued.');
-    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+    assert(~isreal(x_clean), 'Signal must be complex.');
+    assert(~all(imag(x_clean(:)) == 0), ...
+        'Signal must have non-zero imaginary component.');
+    assert(all(isfinite(x_clean(:))), ...
+        'Signal contains NaN/Inf.');
 end

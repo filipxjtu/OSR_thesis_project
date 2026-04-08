@@ -15,13 +15,20 @@ function [old_state] = set_sample_rng(spec, class_id, sample_idx)
     assert(isa(sample_idx, 'int32'), 'sample_idx must be int32');
     assert(sample_idx < int32(1e6), 'sample_idx exceeds seed allocation');
 
-    % Seed (0-999), ClassID (0-999), SampleIdx (0-999,999) for uique seed
-    combined_seed = spec.dataset_seed * 1e7 + ...
-                    class_id * 1e5 + ...
-                    sample_idx;
-                
-    % rng expects 32-bit unsigned int
-    final_seed = mod(uint32(combined_seed), 2^32);
+    
+    base = uint32(mod(double(spec.dataset_seed), 2^32));
+    
+    class_idx_d = double(class_id) * 1000003;
+    sample_idx_d = double(sample_idx) * 1000033;
+    unique_idx = (class_idx_d + sample_idx_d);
+    
+    mix_d = mod(1664525 * unique_idx + 1013904223, 2^32);
+    mix = uint32(mix_d);
+    
+    % Use a unique salt specifically for the clean generator 
+    clean_salt = uint32(987654321); 
+    
+    final_seed = double(bitxor(bitxor(base, mix), clean_salt));
 
     % Apply the state
     old_state = rng; 

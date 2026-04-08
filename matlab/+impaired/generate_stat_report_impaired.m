@@ -1,86 +1,102 @@
 function generate_stat_report_impaired(impaired_dataset)
-%GENERATE_IMPAIRED_REPORT Generate markdown report from impaired dataset struct.
-%
-% Input:
-%   impaired_dataset : struct from generate_impaired_dataset (saved .mat)
 
     arguments
         impaired_dataset (1,1) struct
     end
 
-    % Get metadata from the dataset itself
+    %validation
+    assert(isfield(impaired_dataset,'meta'), 'Missing meta.');
+
     meta = impaired_dataset.meta;
+
+    required_meta = ["dataset_seed","mode","Ns","N","n_per_class","spec_version","snr_mode"];
+    for f = required_meta
+        assert(isfield(meta, f), 'Missing meta field: %s', f);
+    end
+
     seed = meta.dataset_seed;
     mode = meta.mode;
-    N = meta.N;  % Add this line
+    snr_mode = meta.snr_mode;
+    N = meta.N;
     Ns = meta.Ns;
     n_per_class = meta.n_per_class;
     spec_version = meta.spec_version;
-    
-    
-    % Get report data using existing reporter
-    report = impaired.report_impaired_dataset_v1(impaired_dataset);
-    
-    % Create filename
-    filename = sprintf('impaired_dataset_%s_seed%d_n%d_%s_report.md', ...
+
+    % report data
+    report = impaired.report_impaired_dataset_v2(impaired_dataset);
+
+    % file
+    filename = sprintf( ...
+        'impaired_dataset_%s_seed%d_n%d_%s_report.md', ...
         spec_version, seed, n_per_class, mode);
+
     intended_dir = fullfile('reports','statistical');
+    if ~exist(intended_dir,'dir'); mkdir(intended_dir); end
+
     fid = fopen(fullfile(intended_dir, filename), 'w');
-    
-    % Write header
-    fprintf(fid, '# Impaired Dataset Artifact Report\n');
+    assert(fid ~= -1, 'Failed to open report file.');
+
+    % header
+    fprintf(fid, '# Impaired Dataset Artifact Report (v2)\n');
     fprintf(fid, 'Version: impaired_dataset_%s  \n', spec_version);
     fprintf(fid, 'Mode: %s  \n', mode);
+    fprintf(fid, 'SNR Mode: %s  \n', snr_mode);
     fprintf(fid, 'Artifact: impaired_dataset_%s_seed%d_n%d_%s.mat  \n\n', ...
-        spec_version, seed, n_per_class , mode);
-    
-    % Dataset specs
+        spec_version, seed, n_per_class, mode);
+
+    % specs
     fprintf(fid, '---\n\n');
     fprintf(fid, '## 1. Dataset Specifications\n\n');
     fprintf(fid, '| Parameter | Value |\n');
     fprintf(fid, '|-----------|-------|\n');
     fprintf(fid, '| dataset_seed | %d |\n', seed);
-    fprintf(fid, '| N (signal length) | %d samples |\n', N);
+    fprintf(fid, '| N | %d |\n', N);
     fprintf(fid, '| N_samples | %d |\n', Ns);
-    fprintf(fid, '| Mode | %s |\n\n', mode);
-    
-    % Global checksum
+    fprintf(fid, '| Mode | %s |\n', mode);
+    fprintf(fid, '| SNR Mode | %s |\n\n', snr_mode);
+
+    % checksum
     fprintf(fid, '---\n\n');
     fprintf(fid, '## 2. Integrity Evidence\n\n');
-    fprintf(fid, 'Global checksum (FNV-1a 64-bit):\n\n');
+    fprintf(fid, 'Global checksum (simple64_checksum):\n\n');
     fprintf(fid, '```\n%u\n```\n\n', report.global_checksum);
-    
-    % SNR statistics
+
+    % SNR stats
+    bs = report.basic_stats;
+
     fprintf(fid, '---\n\n');
     fprintf(fid, '## 3. SNR Statistics (dB)\n\n');
     fprintf(fid, '| Metric | Target | Realized |\n');
     fprintf(fid, '|--------|--------|----------|\n');
-    fprintf(fid, '| Min | %.2f | %.2f |\n', report.basic_stats.target_min, report.basic_stats.realized_min);
-    fprintf(fid, '| Max | %.2f | %.2f |\n', report.basic_stats.target_max, report.basic_stats.realized_max);
-    fprintf(fid, '| Mean | %.2f | %.2f |\n', report.basic_stats.target_mean, report.basic_stats.realized_mean);
-    fprintf(fid, '| Std | - | %.2f |\n\n', report.basic_stats.realized_std);
-    
-    % Per-class realized SNR
+    fprintf(fid, '| Min | %.2f | %.2f |\n', bs.target_min, bs.realized_min);
+    fprintf(fid, '| Max | %.2f | %.2f |\n', bs.target_max, bs.realized_max);
+    fprintf(fid, '| Mean | %.2f | %.2f |\n', bs.target_mean, bs.realized_mean);
+    fprintf(fid, '| Std | - | %.2f |\n\n', bs.realized_std);
+
+    % per-class
     fprintf(fid, '---\n\n');
     fprintf(fid, '## 4. Per-Class Realized SNR (dB)\n\n');
     fprintf(fid, '| Class ID | Mean Realized SNR |\n');
     fprintf(fid, '|----------|-------------------|\n');
-    
+
     pc = report.per_class_mean_realized;
     for i = 1:height(pc)
-        fprintf(fid, '| %d | %.2f |\n', pc.class_id(i), pc.mean_realized_snr_db(i));
+        fprintf(fid, '| %d | %.2f |\n', ...
+            pc.class_id(i), pc.mean_realized_snr_db(i));
     end
-    
-    % Optional: first few samples for inspection
+
+    % preview
     fprintf(fid, '\n---\n\n');
     fprintf(fid, '## 5. First 5 Samples Preview\n\n');
     fprintf(fid, '| Sample Index | Target SNR | Realized SNR |\n');
     fprintf(fid, '|--------------|------------|--------------|\n');
-    
+
     for i = 1:min(5, length(report.snr_target))
-        fprintf(fid, '| %d | %.2f | %.2f |\n', i-1, report.snr_target(i), report.snr_realized(i));
+        fprintf(fid, '| %d | %.2f | %.2f |\n', ...
+            i-1, report.snr_target(i), report.snr_realized(i));
     end
-    
+
     fclose(fid);
+
     fprintf('Impaired dataset report generated: %s\n', filename);
 end

@@ -13,7 +13,11 @@ function hash = compute_artifact_hash(dataset)
     y = dataset.y;
 
     % Concatenate numeric content deterministically
-    data = [X(:); double(y(:))];
+    if ~isreal(X)
+        data = [real(X(:)); imag(X(:)); double(y(:))];
+    else
+        data = [X(:); double(y(:))];
+    end
 
     % Convert to bytes
     bytes = typecast(data,'uint8');

@@ -10,7 +10,7 @@ import numpy.typing as npt
 class DatasetArtifact:
     # clean: X = X_clean, impaired: X = X_imp
 
-    X: npt.NDArray[np.floating]
+    X: npt.NDArray[np.complexfloating | np.floating]
     y: npt.NDArray[np.integer]
     params: Any
     imp_params: Optional[Any]

@@ -1,40 +1,85 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Optional, Literal
 
-import numpy as np
-import numpy.typing as npt
-
-
-ArrayF = npt.NDArray[np.floating]
+from ..dataio.dataset_artifact import DatasetArtifact
 
 
-class DatasetView(Protocol):
+# Dataset role typing
 
-    """ Abstract view used by the validator """
+DatasetRole = Literal[
+    "clean",
+    "impaired_train",
+    "impaired_eval",
+    "unknown",
+    "clean_unk",
+]
+
+
+# Single dataset wrapper
+
+@dataclass(frozen=True)
+class Dataset:
+    artifact: DatasetArtifact
+    role: DatasetRole
 
     @property
-    def name(self) -> str: ...
+    def X(self):
+        return self.artifact.X
 
-    # Time-domain signals: shape (N_samples, N_time)
-    def x_time(self) -> ArrayF: ...
+    @property
+    def y(self):
+        return self.artifact.y
 
-    # Labels: shape (N_samples,)
-    def y(self) -> npt.NDArray[np.integer]: ...
+    @property
+    def meta(self):
+        return self.artifact.meta
 
-    # Optional: feature tensor e.g., (N_samples, C, F, T) or (N_samples, F, T)
-    def x_feat(self) -> Any | None: ...
+    @property
+    def name(self) -> str:
+        return self.role
 
-    # Metadata dict (must include spec_version, mode, etc.)
-    def meta(self) -> dict[str, Any]: ...
 
+# Bundle definition
 
 @dataclass(frozen=True)
 class DatasetBundle:
-    clean: DatasetView
-    impaired_train: DatasetView
-    impaired_eval: DatasetView
+    """ Represents the full validation input space. """
 
-    def datasets(self):
-        return self.clean, self.impaired_train, self.impaired_eval
+    clean: Dataset
+    impaired_train: Dataset
+    impaired_eval: Dataset
+
+    unknown: Optional[Dataset] = None
+    clean_unk: Optional[Dataset] = None
+
+
+    # Convenience accessors
+    def known_datasets(self) -> list[Dataset]:
+        return [
+            self.clean,
+            self.impaired_train,
+            self.impaired_eval,
+        ]
+
+    def unknown_datasets(self) -> list[Dataset]:
+        out = []
+        if self.unknown is not None:
+            out.append(self.unknown)
+        if self.clean_unk is not None:
+            out.append(self.clean_unk)
+        return out
+
+    def all_datasets(self) -> list[Dataset]:
+        return self.known_datasets() + self.unknown_datasets()
+
+
+    # Flags
+    @property
+    def has_unknown(self) -> bool:
+        return self.unknown is not None
+
+    @property
+    def has_unknown_clean(self) -> bool:
+        return self.clean_unk is not None

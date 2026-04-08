@@ -47,20 +47,16 @@ class MultiScaleConv(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
         b1 = self.branch_local(x)
         b2 = self.branch_dilated(x)
         b3 = self.branch_pointwise(x)
         fused = torch.cat([b1, b2, b3], dim=1)
-
         return self.fuse(fused)
 
 
 class SEBlock(nn.Module):
-
     def __init__(self, channels, reduction=8):
         super().__init__()
-
         self.fc = nn.Sequential(
             nn.Linear(channels, channels // reduction),
             nn.ReLU(inplace=True),
@@ -69,46 +65,31 @@ class SEBlock(nn.Module):
         )
 
     def forward(self, x):
-
         b, c, h, w = x.shape
-
-        y = x.mean(dim=(2,3))      #GAP
+        y = x.mean(dim=(2, 3))  # GAP
         y = self.fc(y)
         y = y.view(b, c, 1, 1)
-
         return x * y
 
+
 class ResidualShrinkageBlockCW(nn.Module):
-    """ residual shrinkage block with
-          - channel-wise thresholds,
-          - multiscale first convolution
-          - noise-aware + variance-aware threshold modulation
-          - |x| global pooling
-    """
+    """ residual shrinkage block with 2D spatial variance tracking """
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
 
         hidden = max(out_channels // 4, 8)
 
-        # residual branch
         self.conv1 = MultiScaleConv(in_channels, out_channels, stride=stride)
-
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
-
         self.relu = nn.ReLU(inplace=True)
-
         self.se = SEBlock(out_channels)
 
-        # shrinkage layers
         self.gap = nn.AdaptiveAvgPool2d(1)
-
         self.fc1 = nn.Linear(out_channels, hidden)
         self.fc2 = nn.Linear(hidden, out_channels)
-
         self.noise_fc = nn.Linear(out_channels, out_channels)
-
         self.var_fc1 = nn.Linear(out_channels, hidden)
         self.var_fc2 = nn.Linear(hidden, out_channels)
 
@@ -119,7 +100,6 @@ class ResidualShrinkageBlockCW(nn.Module):
         self.last_gap: torch.Tensor | None = None
         self.last_var_stat: torch.Tensor | None = None
 
-        # skip connection
         self.skip = nn.Identity()
         if stride != 1 or in_channels != out_channels:
             self.skip = nn.Sequential(
@@ -127,17 +107,13 @@ class ResidualShrinkageBlockCW(nn.Module):
                 nn.BatchNorm2d(out_channels),
             )
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
         identity = self.skip(x)
 
         out = self.conv1(x)
         out = self.bn2(self.conv2(out))
-
         out = self.se(out)
 
-        #shrinkage mechanism
         abs_out = torch.abs(out)
         gap = self.gap(abs_out).view(out.size(0), -1)
 
@@ -147,12 +123,11 @@ class ResidualShrinkageBlockCW(nn.Module):
         scale = self.relu(self.fc1(gap))
         scale = self.sigmoid(self.fc2(scale))
 
-
         noise_gate = torch.sigmoid(self.noise_fc(gap))
         var_gate = torch.relu(self.var_fc1(spatial_var))
         var_gate = torch.sigmoid(self.var_fc2(var_gate))
 
-        threshold = scale * gap * (noise_gate + var_gate)/2
+        threshold = scale * gap * (noise_gate + var_gate) / 2
         threshold = threshold.unsqueeze(2).unsqueeze(3)
 
         self.last_threshold = threshold.detach()
@@ -160,17 +135,13 @@ class ResidualShrinkageBlockCW(nn.Module):
         self.last_var_stat = spatial_var.detach()
 
         out = self.soft_threshold(out, threshold)
-
-        #residual connection
         out = out + identity
-        out = self.relu(out)
-        return out
+        return self.relu(out)
 
 
 class TrajectoryBranch(nn.Module):
     def __init__(self):
         super().__init__()
-
         self.net = nn.Sequential(
             nn.Conv2d(32, 16, kernel_size=(1, 5), padding=(0, 2), bias=False),
             nn.BatchNorm2d(16),
@@ -193,79 +164,118 @@ class TrajectoryBranch(nn.Module):
         return self.net(x)
 
 
+class IQPhysicsBranch(nn.Module):
+    """ 1D CNN to extract micro-phase and timing information directly from complex IQ """
+
+    def __init__(self, out_features=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            # Extract high-frequency phase features
+            nn.Conv1d(2, 32, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
+
+            # Mid-level features
+            nn.Conv1d(32, 64, kernel_size=5, stride=2, padding=2, bias=False),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
+
+            # High-level representations
+            nn.Conv1d(64, out_features, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm1d(out_features),
+            nn.ReLU(inplace=True),
+
+            # Global Average Pooling to 1D Vector
+            nn.AdaptiveAvgPool1d(1)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.net(x)
+        return out.view(out.size(0), -1)  # Flatten to (B, out_features)
+
+
 class TS_MS_VA_DRSN(nn.Module):
     """
-    physics aware drsn network with:
-      - multiscale residual shrinkage backbone
-      - variance aware threshold
-      - trajectory branch
-      - late fusion
+    Multi-Domain Fusion Network:
+      - STREAM 1 (STFT): Multi-Scale 2D DRSN + Trajectory Branch
+      - STREAM 2 (IQ): 1D Physics CNN
+      - Deep Late-Fusion -> Classifier
     """
 
-    def __init__(self, num_classes: int = 7):
+    def __init__(self, num_classes: int = 10):
         super().__init__()
 
-        # stem
-        self.stem = nn.Sequential(
+        # STREAM 1: Semantic Branch (STFT)
+        self.stft_stem = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
         )
 
-        # residual shrinkage stages
         self.layer1 = nn.Sequential(
             ResidualShrinkageBlockCW(32, 32),
             ResidualShrinkageBlockCW(32, 32),
         )
-
         self.layer2 = nn.Sequential(
             ResidualShrinkageBlockCW(32, 64, stride=2),
             ResidualShrinkageBlockCW(64, 64),
         )
-
         self.layer3 = nn.Sequential(
             ResidualShrinkageBlockCW(64, 128, stride=2),
             ResidualShrinkageBlockCW(128, 128),
         )
 
-        #trajectory branch
         self.trajectory_branch = TrajectoryBranch()
 
-        #fusion
-        self.fusion = nn.Sequential(
+        self.stft_fusion = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
         )
+        self.pool2d = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.classifier = nn.Linear(128, num_classes)
-
-
-    def _forward_backbone(self, x: torch.Tensor) -> torch.Tensor:
-
-        stem_feat = self.stem(x)
-
-        # DRSN branch
-        drsn_feat = self.layer3(self.layer2(self.layer1(stem_feat)))
-
-        # trajectory branch
-        traj_feat = self.trajectory_branch(stem_feat)
-
-        # fusion
-        fused = torch.cat([drsn_feat, traj_feat], dim=1)
-        fused = self.pool(self.fusion(fused))
-        return torch.flatten(fused, 1)
+        # STREAM 2: Physics Branch (IQ)
+        self.iq_branch = IQPhysicsBranch(out_features=128)
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # MULTI-DOMAIN FUSION -> 128D from STFT + 128D from IQ = 256D Feature Vector
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.3),  # Prevent overfitting on the fused vector
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, num_classes)
+        )
 
-        if x.ndim != 4:
-            raise ValueError(f"Expected (N,1,F,T), got {tuple(x.shape)}")
+    def _forward_backbone(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+        # 1. Process STFT Stream
+        stft_stem_feat = self.stft_stem(x_stft)
+        drsn_feat = self.layer3(self.layer2(self.layer1(stft_stem_feat)))
+        traj_feat = self.trajectory_branch(stft_stem_feat)
 
-        embedding = self._forward_backbone(x)
-        return  self.classifier(embedding)
+        stft_fused = torch.cat([drsn_feat, traj_feat], dim=1)
+        stft_emb = self.pool2d(self.stft_fusion(stft_fused))
+        stft_emb_flat = torch.flatten(stft_emb, 1)  # (Batch, 128)
 
+        # 2. Process Raw IQ Stream
+        iq_emb_flat = self.iq_branch(x_iq)  # (Batch, 128)
 
-    def extract_embedding(self, x: torch.Tensor) -> torch.Tensor:
-        return self._forward_backbone(x)
+        # 3. Concatenate Domains
+        multi_domain_emb = torch.cat([stft_emb_flat, iq_emb_flat], dim=1)  # (Batch, 256)
+
+        return multi_domain_emb
+
+    def forward(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+
+        if x_stft.ndim != 4 or x_stft.shape[1] != 1:
+            raise ValueError(f"Expected x_stft (N,1,F,T), got {tuple(x_stft.shape)}")
+        if x_iq.ndim != 3 or x_iq.shape[1] != 2:
+            raise ValueError(f"Expected x_iq (N,2,1024), got {tuple(x_iq.shape)}")
+
+        embedding = self._forward_backbone(x_stft, x_iq)
+        return self.classifier(embedding)
+
+    def extract_embedding(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+        """ Returns the 256D Multi-Domain Fused Vector for t-SNE plotting """
+        return self._forward_backbone(x_stft, x_iq)

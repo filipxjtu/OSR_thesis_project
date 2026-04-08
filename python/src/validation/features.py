@@ -1,135 +1,103 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from typing import Dict, Any
 
 import numpy as np
 
-from .exceptions import FailedCheck
-from .stats import effect_size_delta
+from .types import Dataset, DatasetBundle
 
 
-@dataclass(frozen=True)
-class FeatureThresholds:
-    # Feature finite + non-collapse
-    feat_std_min: float = 1e-6
-    feat_energy_min: float = 1e-8
 
-    # Separation in feature space
-    min_effect_size_feat_train: float = 0.20
-    min_effect_size_feat_eval: float = 0.20
-    min_effect_size_feat_train_vs_eval: float = 0.10
-
-
-def _require(cond: bool, check_id: str, message: str, details: dict[str, Any]) -> list[FailedCheck]:
-    return [] if cond else [FailedCheck(check_id=check_id, message=message, details=details)]
-
-
-def _as_feat_array(x_feat: Any) -> np.ndarray:
-    """
-    Accepts np arrays or torch tensors; returns float64 numpy.
-    Expected shape: (N, ...) any rank >= 2.
-    """
-    if x_feat is None:
-        raise ValueError("x_feat is None")
-    try:
-        import torch  # optional
-        if isinstance(x_feat, torch.Tensor):
-            x_feat = x_feat.detach().cpu().numpy()
-    except Exception:
-        pass
-    x = np.asarray(x_feat, dtype=np.float64)
-    if x.ndim < 2:
-        raise ValueError(f"Feature tensor must have ndim>=2, got {x.ndim}")
+# Internal helpers
+def _samples_first(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x)
+    if x.ndim != 2:
+        raise ValueError(f"Expected 2D array, got shape {x.shape}")
     return x
 
+# Core feature extractors
+def compute_magnitude(x: np.ndarray) -> np.ndarray:
+    return np.abs(x)
 
-def feature_checks(bundle, th: FeatureThresholds) -> tuple[list[FailedCheck], dict[str, Any]]:
+def compute_spectrum(x: np.ndarray) -> np.ndarray:
     """
-    Runs only if ALL datasets provide x_feat != None.
+    Mean magnitude spectrum over samples.
+    Input: x: (Ns, N), Output: spectrum: (N,)
     """
-    feats = {}
-    for ds in bundle.datasets():
-        xf = ds.x_feat()
-        if xf is None:
-            return [], {"skipped": True, "reason": f"{ds.name} has no x_feat()"}
-        feats[ds.name] = _as_feat_array(xf)
+    X = np.fft.fft(x, axis=1)
+    mag = np.abs(X)
+    return np.mean(mag, axis=0)
 
-    fails: list[FailedCheck] = []
-    metrics: dict[str, Any] = {"skipped": False}
+def compute_phase(x: np.ndarray) -> np.ndarray:
+    """ Phase of complex signal. eturns: phase: (Ns, N)  """
+    if not np.iscomplexobj(x):
+        return np.zeros_like(x, dtype=np.float64)
+    return np.angle(x)
 
-    def sample_energy(x: np.ndarray) -> np.ndarray:
-        x_flat = x.reshape(x.shape[0], -1)
-        return np.sum(x_flat * x_flat, axis=1)
+def compute_phase_components(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """ Returns cos(phase), sin(phase). Used for consistency checks. """
+    phase = compute_phase(x)
+    return np.cos(phase), np.sin(phase)
 
-    energies = {}
-    # Finite checks + collapse checks
-    for name, x in feats.items():
-        bad = ~np.isfinite(x)
-        fails += _require(
-            not bool(np.any(bad)),
-            "F001.feat_no_nan_inf",
-            f"{name}: found NaN/Inf in feature tensor",
-            {"dataset": name, "bad_count": int(np.sum(bad))},
-        )
+def compute_class_counts(y: np.ndarray, n_classes: int) -> np.ndarray:
+    """     Class histogram (fixed length) """
+    y = np.asarray(y).reshape(-1).astype(np.int64)
+    return np.bincount(y, minlength=n_classes)
 
-        std = float(np.std(x))
-        fails += _require(
-            std >= th.feat_std_min,
-            "F002.feat_not_collapsed",
-            f"{name}: feature std too small (collapse)",
-            {"dataset": name, "std": std, "threshold": th.feat_std_min},
-        )
 
-        # per-sample energy sanity: mean(sum(x^2)) must not vanish
-        energy_vec = sample_energy(x)
-        energy = float(np.mean(energy_vec))
+# Dataset-level feature pack
+def extract_dataset_features(ds: Dataset) -> Dict[str, Any]:
+    """
+    Extract reusable features for a single dataset.
+    This function centralizes all repeated computations used across checks.
+    """
 
-        energies[name] = energy_vec
+    x = _samples_first(np.asarray(ds.X).T)
 
-        fails += _require(
-            energy >= th.feat_energy_min,
-            "F003.feat_energy_nonzero",
-            f"{name}: feature energy too small (degenerate features)",
-            {"dataset": name, "energy": energy, "threshold": th.feat_energy_min},
-        )
+    features: Dict[str, Any] = {}
 
-        metrics[name] = {"std": std, "mean_energy": energy, "shape": list(x.shape)}
+    # time-domain
+    features["magnitude"] = compute_magnitude(x)
 
-    # Separation checks (feature space)
-    c =  energies[bundle.clean.name]
-    tr = energies[bundle.impaired_train.name]
-    ev = energies[bundle.impaired_eval.name]
+    # frequency-domain
+    features["spectrum"] = compute_spectrum(x)
 
-    d_tr = effect_size_delta(c, tr)
-    d_ev = effect_size_delta(c, ev)
-    d_te = effect_size_delta(tr, ev)
+    # phase
+    phase = compute_phase(x)
+    cos_p, sin_p = compute_phase_components(x)
 
-    metrics["effect_sizes_feat"] = {
-        "clean_vs_train": float(d_tr),
-        "clean_vs_eval": float(d_ev),
-        "train_vs_eval": float(d_te),
-    }
+    features["phase"] = phase
+    features["cos_phase"] = cos_p
+    features["sin_phase"] = sin_p
 
-    fails += _require(
-        d_tr >= th.min_effect_size_feat_train,
-        "F010.feat_sep_clean_vs_train",
-        "Feature-space separation too small: clean vs impaired_train",
-        {"effect_size": float(d_tr), "threshold": th.min_effect_size_feat_train},
+    # labels
+    features["labels"] = np.asarray(ds.y).reshape(-1)
+
+    return features
+
+
+# Bundle-level feature pack
+def extract_bundle_features(bundle: DatasetBundle) -> Dict[str, Dict[str, Any]]:
+    """     Extract features for all datasets. Output: { dataset_name: {feature_dict} }    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for ds in bundle.all_datasets():
+        out[ds.name] = extract_dataset_features(ds)
+    return out
+
+
+# Separation helpers
+def compute_spectrum_distance(a: np.ndarray, b: np.ndarray) -> float:
+    """     Wrapper over effect-size-like distance for spectra.     """
+    a = np.asarray(a).ravel()
+    b = np.asarray(b).ravel()
+    return float(
+        np.linalg.norm(a - b) / (np.linalg.norm(a) + 1e-12)
     )
 
-    fails += _require(
-        d_ev >= th.min_effect_size_feat_eval,
-        "F011.feat_sep_clean_vs_eval",
-        "Feature-space separation too small: clean vs impaired_eval",
-        {"effect_size": float(d_ev), "threshold": th.min_effect_size_feat_eval},
-    )
+def compute_phase_variability(phase: np.ndarray) -> float:
+    """     Scalar measure of phase spread.     """
+    return float(np.var(phase))
 
-    fails += _require(
-        d_te >= th.min_effect_size_feat_train_vs_eval,
-        "F012.feat_sep_train_vs_eval",
-        "Feature-space separation too small: impaired_train vs impaired_eval",
-        {"effect_size": float(d_te), "threshold": th.min_effect_size_feat_train_vs_eval},
-    )
-
-    return fails, metrics
+def compute_unit_circle_error(cos_p: np.ndarray, sin_p: np.ndarray) -> float:
+    """     Measures violation of cos² + sin² = 1     """
+    return float(np.mean(np.abs(cos_p**2 + sin_p**2 - 1.0)))

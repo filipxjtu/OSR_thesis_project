@@ -23,16 +23,21 @@ from .dataset_artifact import DatasetArtifact
 def _is_hdf5_ref(ds: h5py.Dataset) -> bool:
     return ds.dtype == h5py.ref_dtype
 
+
 def _follow_ref(f: h5py.File, ref: h5py.Reference) -> Any:
     if not ref:
         return None
     return f[ref]
 
-def _read_matlab_struct(f: h5py.File, grp: h5py.Group) -> dict[str, Any]:
+
+def _read_matlab_struct(f: h5py.File, grp: h5py.Group, ignore_keys: list[str] = None) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k in grp.keys():
+        if ignore_keys and k in ignore_keys:
+            continue
         out[k] = _read_matlab_value(f, grp[k])
     return out
+
 
 def _read_matlab_cell(f: h5py.File, ds: h5py.Dataset) -> list[Any]:
     data = ds[()]
@@ -43,8 +48,15 @@ def _read_matlab_cell(f: h5py.File, ds: h5py.Dataset) -> list[Any]:
         out.append(_read_matlab_value(f, target))
     return out
 
+
 def _read_dataset_value(ds: h5py.Dataset) -> Any:
     arr = ds[()]
+
+    if isinstance(arr, np.ndarray) and arr.dtype.fields is not None and "real" in arr.dtype.fields:
+        c_arr = np.empty(arr.shape, dtype=np.complex128)
+        c_arr.real = arr["real"]
+        c_arr.imag = arr["imag"]
+        return c_arr
 
     if isinstance(arr, np.ndarray):
         if arr.dtype == np.uint16:
@@ -92,9 +104,9 @@ def _read_root_group(f: h5py.File, root: str) -> h5py.Group:
 
 
 def _detect_root(f: h5py.File) -> str:
-    candidates = [k for k in f.keys() if k in {"dataset", "impaired_data"}]
+    candidates = [k for k in f.keys() if k in {"dataset", "impaired_data", "unknown_data"}]
     if len(candidates) == 0:
-        raise RootNotFoundError("Neither 'dataset' nor 'impaired_data' found.")
+        raise RootNotFoundError("Neither 'dataset', 'impaired_data' nor 'unknown_data' found.")
     if len(candidates) > 1:
         raise MultipleRootError(f"Multiple root structs found: {candidates}")
     return candidates[0]
@@ -104,77 +116,80 @@ def compute_simple64_checksum(x_raw: np.ndarray, y_raw: np.ndarray, N: int, Ns: 
     x_raw = np.asarray(x_raw)
     y_raw = np.asarray(y_raw)
 
-    # match matlab X(:)
-    if x_raw.shape == (N, Ns):
-        x_flat = x_raw.ravel(order="F")
-    elif x_raw.shape == (Ns, N):
-        x_flat = x_raw.ravel(order="C")
+    if np.iscomplexobj(x_raw):
+        x_real = np.real(x_raw)
+        x_imag = np.imag(x_raw)
     else:
-        raise AlignmentError(f"Unexpected X shape for hashing: {x_raw.shape}")
+        x_real = x_raw
+        x_imag = None
 
-    # match matlab double(y(:))
+    if x_real.shape == (N, Ns):
+        x_real_flat = x_real.ravel(order="F")
+    else:
+        x_real_flat = x_real.ravel(order="C")
+
+    if x_imag is not None:
+        if x_imag.shape == (N, Ns):
+            x_imag_flat = x_imag.ravel(order="F")
+        else:
+            x_imag_flat = x_imag.ravel(order="C")
+        x_flat = np.concatenate([x_real_flat, x_imag_flat])
+    else:
+        x_flat = x_real_flat
+
     if y_raw.shape == (Ns, 1):
         y_flat = y_raw.ravel(order="F")
-    elif y_raw.shape == (1, Ns):
-        y_flat = y_raw.ravel(order="C")
-    elif y_raw.shape == (Ns,):
-        y_flat = y_raw.ravel(order="C")
     else:
-        raise AlignmentError(f"Unexpected y shape for hashing: {y_raw.shape}")
+        y_flat = y_raw.ravel(order="C")
 
-    y_flat = y_flat.astype(np.float64, copy=False)
+    x_flat = x_flat.astype('<f8', copy=False)
+    y_flat = y_flat.astype('<f8', copy=False)
 
-    if x_flat.dtype != np.float64:
-        x_flat = x_flat.astype(np.float64, copy=False)
-
-    # concatenate like in matlab
     data = np.concatenate([x_flat, y_flat])
-
-    # view as raw bytes
     bytes_ = data.view(np.uint8)
 
-    # vectorized accumulation
     h = np.uint64(14695981039346656037)
-    h = np.uint64(h + np.sum(bytes_, dtype=np.uint64))
+    h += np.sum(bytes_, dtype=np.uint64)
 
     return int(h)
 
 
-# Validate
-def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
-
+def validate_and_normalize(f: h5py.File, path: str, load_params: bool = True) -> DatasetArtifact:
     root = _detect_root(f)
     root_grp = _read_root_group(f, root)
-    root_dict = _read_matlab_struct(f, root_grp)
 
-    # required fields
+    ignore_keys = None if load_params else ["params", "imp_params"]
+    root_dict = _read_matlab_struct(f, root_grp, ignore_keys=ignore_keys)
+
     if root == "dataset":
-        required = ["X_clean", "y", "params", "meta"]
+        required = ["X_clean", "y", "meta"]
+        if load_params:
+            required.append("params")
         x_name = "X_clean"
     else:
-        required = ["X_imp", "y", "params", "imp_params", "meta"]
+        required = ["X_imp", "y", "meta"]
+        if load_params:
+            required.extend(["params", "imp_params"])
         x_name = "X_imp"
 
     for r in required:
         if r not in root_dict:
             raise MissingFieldError(f"{path}: missing field '{r}' in root '{root}'")
 
-    # extract arrays (keep row for checksum)
     x_raw = np.asarray(root_dict[x_name])
     y_raw = np.asarray(root_dict["y"])
 
     x = x_raw
     y = y_raw
 
-    params = root_dict["params"]
-    imp_params = root_dict["imp_params"] if root == "impaired_data" else None
+    params = root_dict.get("params", None)
+    imp_params = root_dict.get("imp_params", None)
 
     meta_raw = root_dict["meta"]
     if not isinstance(meta_raw, dict):
         raise MetadataError(f"{path}: meta must be a struct/dict.")
     meta: dict[str, Any] = meta_raw
 
-    # normalize orientation
     N_meta = int(meta["N"])
     Ns_meta = int(meta["Ns"])
 
@@ -185,7 +200,6 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
     if y.shape == (1, Ns_meta):
         y = y.T
 
-    # shape validation
     if x.shape != (N_meta, Ns_meta):
         raise ShapeMismatchError(
             f"{path}: X shape mismatch. expected {(N_meta, Ns_meta)}, got {x.shape}"
@@ -196,18 +210,15 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
             f"{path}: y shape mismatch. expected {(Ns_meta, 1)}, got {y.shape}"
         )
 
-    # dtype validation
-    if x.dtype != np.float64:
-        raise DtypeMismatchError(f"{path}: X must be float64, got {x.dtype}")
+    if x.dtype not in (np.float64, np.complex128):
+        raise DtypeMismatchError(f"{path}: X must be float64 or complex128, got {x.dtype}")
 
     if y.dtype != np.int32:
         raise DtypeMismatchError(f"{path}: y must be int32, got {y.dtype}")
 
-    # numeric validation
     if not np.isfinite(x).all():
         raise NumericDomainError(f"{path}: X contains NaN/Inf")
 
-    # meta validation
     required_meta = [
         "spec_version",
         "dataset_seed",
@@ -236,12 +247,11 @@ def validate_and_normalize(f: h5py.File, path: str) -> DatasetArtifact:
     if layout != "N_by_Ns_columns_are_samples":
         raise MetadataError(f"{path}: layout mismatch: {layout}")
 
-    if root == "impaired_data":
+    if root in ("impaired_data", "unknown_data"):
         mode = str(meta["mode"])
         if mode not in {"train", "eval"}:
             raise MetadataError(f"{path}: invalid mode: {mode}")
 
-       # hash verification
     computed_hash = compute_simple64_checksum(x_raw, y_raw, N_meta, Ns_meta)
     stored_hash = int(meta["artifact_hash"])
 

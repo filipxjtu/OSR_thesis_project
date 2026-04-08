@@ -2,7 +2,7 @@ function [x_clean, y, params] = generate_clean_sample(class_id, sample_idx, spec
     % GENERATE_CLEAN_SAMPLE Orchestrator for single-sample generation.
     
     % Inputs:
-    %   class_id   : (int32) The signal category (0-6)
+    %   class_id   : (int32) The signal category (0-13)
     %   sample_idx : (int32) Unique index for RNG seeding
     %   spec       : Canonical project specification struct
     
@@ -32,11 +32,24 @@ function [x_clean, y, params] = generate_clean_sample(class_id, sample_idx, spec
             x_clean = clean.synthesize_clean_signal_class5(params, spec);
         case 6
             x_clean = clean.synthesize_clean_signal_class6(params, spec);
+        case 7
+            x_clean = clean.synthesize_clean_signal_class7(params, spec);
+        case 8
+            x_clean = clean.synthesize_clean_signal_class8(params, spec);
+        case 9
+            x_clean = clean.synthesize_clean_signal_class9(params, spec);
+        case 10
+            x_clean = clean.synthesize_clean_signal_class10(params, spec);
+        case 11
+            x_clean = clean.synthesize_clean_signal_class11(params, spec);
+        case 12
+            x_clean = clean.synthesize_clean_signal_class12(params, spec);
+        case 13
+            x_clean = clean.synthesize_clean_signal_class13(params, spec);
+       
         otherwise
-            error('Invalid class_id: %d. Must be 0-6.', class_id);
+            error('Invalid class_id: %d. Must be 0-13.', class_id);
     end
-
-    x_clean = x_clean - mean(x_clean);
 
     % set label
     y = int32(class_id);

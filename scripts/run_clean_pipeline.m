@@ -1,14 +1,5 @@
 function dataset = run_clean_pipeline(spec, n_per_class, dataset_seed)
 %RUN_CLEAN_PIPELINE Master orchestrator for clean dataset generation.
-%
-% Inputs:
-%   spec          : canonical spec struct (without dataset_seed required)
-%   n_per_class   : number of samples per class
-%   dataset_seed  : deterministic seed for this dataset instance
-%
-% Output:
-%   dataset       : clean dataset struct
-
 
     arguments
         spec (1,1) struct
@@ -19,30 +10,36 @@ function dataset = run_clean_pipeline(spec, n_per_class, dataset_seed)
     project_root = fileparts(fileparts(mfilename('fullpath')));
     addpath(genpath(fullfile(project_root, 'matlab')));
 
-    % Inject seed (do NOT mutate original spec)
+    core.validate_spec_structure(spec);
+
+    % local spec
     spec_local = spec;
+
+    % override seed
     spec_local.dataset_seed = int32(dataset_seed);
+
     version = spec_local.spec_version;
 
-    % Ensure folders exist
     if ~exist('artifacts','dir'); mkdir('artifacts'); end
     if ~exist('reports','dir');   mkdir('reports');   end
+
+    output_dir = fullfile('artifacts', 'datasets','clean');
+    if ~exist(output_dir,'dir'); mkdir(output_dir); end
 
     fprintf('=== CLEAN PIPELINE START ===\n');
     fprintf('Seed: %d | n_per_class: %d\n', dataset_seed, n_per_class);
 
-    % Generate dataset
+    % generate dataset
     dataset = clean.generate_clean_dataset(n_per_class, spec_local);
 
-    % Save artifact
+    % save
     filename = sprintf( ...
         'clean_dataset_%s_seed%d_n%d.mat', ...
         version, dataset_seed, n_per_class);
-    output_dir = fullfile('artifacts', 'datasets','clean');
+
     save(fullfile(output_dir, filename), 'dataset', '-v7.3');
 
-    % Generate report
+    % report
     clean.generate_stat_report_clean(dataset);
-
     fprintf('=== CLEAN PIPELINE COMPLETE ===\n');
 end

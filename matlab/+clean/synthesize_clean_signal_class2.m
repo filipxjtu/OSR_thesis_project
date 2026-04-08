@@ -1,22 +1,43 @@
 function x_clean = synthesize_clean_signal_class2(params, spec)
-    % SYNTHESIZE_CLEAN_SIGNAL_CLASS2 Pure synthesis for LFM (Class 2).
-    %Linear Frequency Modulated clean signal (chirp)
-    % x(t) = A * cos(2 * pi ( f0 * t + 0.5 * k * t * t) + phi),  
-    % where k = (f1 - f0) / T
-    % instantaneous frequency is f(t) = f0 + kt
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS2
+% LFM with:
+% - Doppler time scaling
+% - Tukey window (hardware pulse shaping)
 
-    % calculate time base
+    N = spec.N;    
+    A = params.A;
+    f0 = params.f0;
+    T = params.T;
+    K = params.K;
+    phi = params.phi;
+    alpha = params.alpha_tukey;
+
+    % Time base
     t = (double(0:spec.N-1)') / double(spec.fs);
 
-    % generate signal
-    assert(params.T > 0, 'Sweep duration T must be positive.');
-    k = (params.f1 - params.f0) / params.T;
-    
-    x_clean = params.A * cos( 2 * pi * (params.f0 * t + (0.5 * k * t .^ 2)) + params.phi);
-    
-    % assertions
+    assert(T > 0, 'Sweep duration T must be positive.');
+
+    % Doppler scaling
+    t_s = (1 + params.delta) * t;
+
+    % Phase
+    phase = 2 * pi * (f0 * t_s + 0.5 * K * (t_s.^2)) + phi;
+    x = A * exp(1i * phase);
+
+    % Tukey window
+    w = tukeywin(N, alpha);
+ 
+    x = x .* w;
+
+    % Normalize to unit RMS
+    rms_val = sqrt(mean(abs(x).^2));
+    assert(rms_val > 0, 'LFM: RMS is zero before normalization.');
+    x_clean = x / rms_val;
+
+    % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
-    assert(isreal(x_clean), 'Signal must be real-valued.');
-    assert(all(isfinite(x_clean)), 'Signal contains Inf or NaN values.');
+    assert(~isreal(x_clean), 'Signal must be complex.');
+    assert(~all(imag(x_clean(:)) == 0), 'Imaginary part must exist.');
+    assert(all(isfinite(x_clean(:))), 'Signal contains NaN/Inf.');
 end

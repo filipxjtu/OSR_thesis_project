@@ -14,7 +14,7 @@
 - real_valued: true
 - shape_convention:
   - canonical_vector_shape: (N, 1) in MATLAB functions
-  - stored_dataset_shape: (N_samples, N) where each row is one sample  <!-- adjust if you store column-wise -->
+  - stored_dataset_shape: (N_samples, N) where each row is one sample  
 - dtype:
   - MATLAB: double
   - Python target: float32 after load (unless explicitly stated)

@@ -9,7 +9,7 @@ from sklearn.preprocessing import label_binarize
 from sklearn.manifold import TSNE
 
 
-def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_classes=7):
+def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_classes=10):
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -17,20 +17,23 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
     y_true = []
     y_predicts = []
+    y_scores = []
 
     with torch.no_grad():
-        for x, y in dataloader:
-            x = x.to(device)
-            y = y.to(device)
+        for x_stft, x_iq, y in dataloader:
+            x_stft, x_iq, y = x_stft.to(device), x_iq.to(device), y.to(device)
 
-            logits = model(x)
-            predicts = torch.argmax(logits, dim=1)
+            logits = model(x_stft, x_iq)
+            pobs = torch.nn.functional.softmax(logits, 1)
+            predicts = torch.argmax(logits,1)
 
             y_true.append(y.cpu().numpy())
             y_predicts.append(predicts.cpu().numpy())
+            y_scores.append(pobs.cpu().numpy())
 
     y_true = np.concatenate(y_true)
     y_predicts = np.concatenate(y_predicts)
+    y_scores = np.concatenate(y_scores)
 
     # Confusion matrix
     cm = np.zeros((n_classes, n_classes), dtype=int)
@@ -70,18 +73,6 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
     # ROC curves
     y_true_bin = label_binarize(y_true, classes=list(range(n_classes)))
-
-    model.eval()
-    probs_list = []
-
-    with torch.no_grad():
-        for x, _ in dataloader:
-            x = x.to(device)
-            logits = model(x)
-            probs = torch.softmax(logits, dim=1)
-            probs_list.append(probs.cpu().numpy())
-
-    y_scores = np.concatenate(probs_list)
 
     plt.figure(figsize=(6, 5))
 
@@ -125,7 +116,7 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
         json.dump(per_class_accuracy, f, indent=2)
 
 
-def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
+def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=10):
 
     model.eval()
 
@@ -133,11 +124,11 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=7):
     labels = []
 
     with torch.no_grad():
-        for x, y in dataloader:
+        for x_stft, x_iq, y in dataloader:
 
-            x = x.to(device)
+            x_stft, x_iq = x_stft.to(device), x_iq.to(device)
 
-            feat = model.extract_embedding(x)
+            feat = model.extract_embedding(x_stft, x_iq)
 
             embeddings.append(feat.cpu().numpy())
             labels.append(y.numpy())

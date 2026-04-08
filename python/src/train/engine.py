@@ -18,18 +18,19 @@ def train_one_epoch(
     total_loss = 0.0
     total_samples = 0
 
-    for x, y in loader:
-        x = x.to(device)
+    for x_stft, x_iq, y in loader:
+        x_stft = x_stft.to(device)
+        x_iq = x_iq.to(device)
         y = y.to(device)
 
         optimizer.zero_grad()
 
-        logits = model(x)
+        logits = model(x_stft, x_iq)
         loss = criterion(logits, y)
 
         loss.backward()
         optimizer.step()
-        batch_size = x.size(0)
+        batch_size = y.size(0)
         total_loss += loss.item() * batch_size
         total_samples += batch_size
 
@@ -48,14 +49,15 @@ def evaluate(model: nn.Module, loader: DataLoader, criterion: nn.Module, device:
     total_correct = 0
     total_samples = 0
 
-    for x, y in loader:
-        x = x.to(device)
+    for x_stft, x_iq, y in loader:
+        x_stft = x_stft.to(device)
+        x_iq = x_iq.to(device)
         y = y.to(device)
 
-        logits = model(x)
+        logits = model(x_stft, x_iq)
         loss = criterion(logits, y)
 
-        batch_size = x.size(0)
+        batch_size = y.size(0)
         total_loss += loss.item() * batch_size
         predicts = torch.argmax(logits, dim=1)
         total_correct += (predicts == y).sum().item()
