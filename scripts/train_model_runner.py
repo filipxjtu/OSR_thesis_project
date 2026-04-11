@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import torch
+
 from python.src.train import train_model
 
 def find_project_root():
@@ -29,7 +31,7 @@ def main():
                 print(f"\n\nRunning experiment model = {m}, seed={s}, n per class = {n}")
                 print("==========================================================================\n")
 
-                train_model(
+                trained_model = train_model(
                     seed=s,
                     project_root=project_root,
                     model_name=m,
@@ -37,6 +39,13 @@ def main():
                     spec_version=spec_version,
                     n_epochs=epochs,
                 )
+                # clean up RAM
+                del trained_model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+
 
 
 if __name__ == "__main__":

@@ -17,8 +17,8 @@ def main():
     project_root = find_project_root()
 
     spec_version = "v2"
-    seeds = [24, 46, 68]
-    n_per_class_list = [600]
+    seeds = [321, 456, 987]
+    n_per_class_list = [1000]
 
     for seed in seeds:
         for n_per_class in n_per_class_list:

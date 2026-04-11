@@ -9,21 +9,14 @@ import torch.nn.functional as F
 from .ts_ms_va_drsn import TS_MS_VA_DRSN, ResidualShrinkageBlockCW
 
 
-
-# Sparse-code collector (hook-based, single forward pass)
+# Sparse-code collector (hook-based)
 
 class _SparseCodeCollector:
-    """
-    Collects the binary activation mask from every ResidualShrinkageBlockCW.
-    In the Two-Stream architecture, this automatically isolates the STFT
-    macro-frequency envelope sparsity patterns, ignoring the raw IQ branch.
-    """
-
     __slots__ = ("_codes", "_hooks")
 
     def __init__(self):
-        self._codes: List[torch.Tensor] = []  # each [B, C] float (binary 0/1)
-        self._hooks: list = []
+        self._codes: List[torch.Tensor] = []
+        self._hooks: List = []
 
     def register(self, model: nn.Module) -> "_SparseCodeCollector":
         for mod in model.modules():
@@ -44,27 +37,27 @@ class _SparseCodeCollector:
             gap = getattr(block, "last_gap", None)
             if thresh is None or gap is None:
                 return
-            # True where channel survived (gap >= threshold)
-            # thresh is [B, C, 1, 1], gap is [B, C]
-            survived = (gap >= thresh.squeeze(-1).squeeze(-1)).float()  # [B, C]
+
+            # thresh: [B, C, 1, 1] -> squeeze spatial dims
+            # gap: [B, C]
+            survived = (gap >= thresh.squeeze(-1).squeeze(-1)).float()
             self._codes.append(survived)
 
         return _hook
 
     def get_code(self) -> Optional[torch.Tensor]:
-        """Concatenate codes from all blocks -> [B, total_C]"""
+        """Concatenate codes from all blocks -> [B, total_C]."""
         if not self._codes:
             return None
         return torch.cat(self._codes, dim=1)
 
 
-
-# Per-class codebook (EMA-updated, k centroids per class)
+# Per-class codebook
 
 class _SparseCodebook(nn.Module):
     """
-    Stores k centroids per class as soft (float) prototypes in [0, 1].
-    Updated online via Exponential Moving Average during training.
+    Stores k soft centroids per class, updated online via EMA.
+    Not gradient-trained; updated via model.collect_and_update() during Phase 1.
     """
 
     def __init__(
@@ -72,7 +65,7 @@ class _SparseCodebook(nn.Module):
             num_classes: int,
             code_dim: int,
             k: int = 4,
-            ema_momentum: float = 0.99,
+            ema_momentum: float = 0.95,
     ):
         super().__init__()
         self.num_classes = num_classes
@@ -80,29 +73,25 @@ class _SparseCodebook(nn.Module):
         self.k = k
         self.ema_momentum = ema_momentum
 
-        # Centroids: [num_classes, k, code_dim]
-        self.register_buffer(
-            "centroids",
-            torch.full((num_classes, k, code_dim), 0.5),
-        )
-        self.register_buffer(
-            "initialised",
-            torch.zeros(num_classes, k, dtype=torch.bool),
-        )
+        # Centroids [num_classes, k, code_dim] -> uninformed prior = 0.5
+        self.register_buffer("centroids", torch.full((num_classes, k, code_dim), 0.5))
+        self.register_buffer("initialised", torch.zeros(num_classes, k, dtype=torch.bool))
 
     @torch.no_grad()
     def update(self, codes: torch.Tensor, labels: torch.Tensor):
+        """EMA update for known classes present in the batch."""
         for c in labels.unique():
-            # Skip unknown labels (-1) if they accidentally slip through
-            if c.item() == -1: continue
+            if c.item() == -1:
+                continue
 
             mask = labels == c
-            class_codes = codes[mask]  # [n, D]
-            c_idx = c.item()
+            class_codes = codes[mask]
+            c_idx = int(c.item())
 
             for kid in range(self.k):
-                centroid = self.centroids[c_idx, kid]  # [D]
+                centroid = self.centroids[c_idx, kid]
 
+                # Initialize centroid from the first sample
                 if not self.initialised[c_idx, kid]:
                     self.centroids[c_idx, kid] = class_codes[0]
                     self.initialised[c_idx, kid] = True
@@ -111,8 +100,9 @@ class _SparseCodebook(nn.Module):
                         break
                     continue
 
-                dists = (class_codes - centroid).abs().mean(dim=1)  # [n]
-                assigned = class_codes[dists < dists.mean() + 0.1]  # soft threshold
+                # Soft assignment: use samples closer than (mean + 0.1)
+                dists = (class_codes - centroid).abs().mean(dim=1)
+                assigned = class_codes[dists < dists.mean() + 0.1]
 
                 if assigned.shape[0] == 0:
                     continue
@@ -122,76 +112,137 @@ class _SparseCodebook(nn.Module):
                 self.centroids[c_idx, kid] = m * centroid + (1 - m) * mean_assigned
 
     def hamming_distance(self, codes: torch.Tensor, pred_class: torch.Tensor) -> torch.Tensor:
-        B = codes.size(0)
-        distances = torch.zeros(B, device=codes.device)
+        """
+        Vectorized minimum normalized Hamming distance to nearest centroid of predicted class.
+        Returns [B] in [0, 1]. Low = known match, High = likely unknown.
+        """
+        cents = self.centroids[pred_class]
+        d = (codes.unsqueeze(1) - cents).abs().mean(dim=2)
+        return d.min(dim=1).values
 
-        for i in range(B):
-            c_idx = pred_class[i].item()
-            cents = self.centroids[c_idx]  # [k, D]
-            d = (codes[i].unsqueeze(0) - cents).abs().mean(dim=1)  # [k]
-            distances[i] = d.min()
+    def convergence_stats(self) -> Dict[str, torch.Tensor]:
+        """Returns per-class centroid spread to monitor codebook health."""
+        return {
+            "mean_activation_per_class": self.centroids.mean(dim=[1, 2]),
+            "spread_per_class": self.centroids.std(dim=1).mean(dim=1),
+            "pct_initialised": self.initialised.float().mean(),
+        }
 
-        return distances  # [B]  in [0, 1]
 
-
-# Main model — SparseFingerprint_TS_DRSN
+# Main model
 
 class SparseFingerprint_TS_DRSN(nn.Module):
-    """
-    Two-Stream Sparse Activation Code Fingerprinting for Open-Set Recognition.
-    """
-
     def __init__(
             self,
             num_classes: int = 10,
             k_centroids: int = 4,
-            ema_momentum: float = 0.99,
+            ema_momentum: float = 0.95,
+            warmup_epochs: int = 30,
             use_pretrained: bool = False,
             pretrained_path: Optional[str] = None,
     ):
         super().__init__()
-
         self.num_classes = num_classes
+        self.warmup_epochs = warmup_epochs
 
         # Two-Stream Backbone
         self.base = TS_MS_VA_DRSN(num_classes=num_classes)
 
         if use_pretrained and pretrained_path:
             self.base.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
-            print(f"[SparseFingerprint] Loaded pretrained weights from {pretrained_path}")
+            print(f"[SparseFingerprint] Loaded backbone from {pretrained_path}")
 
-        #  Codebook
+        # Codebook (built lazily on first forward pass)
         self._code_dim: Optional[int] = None
         self._codebook: Optional[_SparseCodebook] = None
-        self._k_centroids = k_centroids
-        self._ema_momentum = ema_momentum
+        self._k = k_centroids
+        self._ema_mom = ema_momentum
 
-        #  Calibration Head (Hamming_Dist, 1-MaxProb) -> Unknown_Score
+        # Score Calibrator (Frozen Phase 1, Trained Phase 2)
         self.score_calibrator = nn.Sequential(
-            nn.Linear(2, 8),
+            nn.Linear(2, 16),
+            nn.ReLU(inplace=True),
+            nn.Linear(16, 8),
             nn.ReLU(inplace=True),
             nn.Linear(8, 1),
             nn.Sigmoid(),
         )
 
+        # Learnable temperature for classification logits
         self._log_temperature = nn.Parameter(torch.zeros(1))
 
     @property
     def temperature(self) -> torch.Tensor:
         return F.softplus(self._log_temperature) + 1e-3
 
+    def current_phase(self, epoch: int) -> int:
+        return 1 if epoch <= self.warmup_epochs else 2
+
+    def set_phase(self, epoch: int):
+        """
+        Call at the start of each epoch to set the correct freeze state.
+
+        Phase 1: backbone trainable, calibrator frozen.
+        Phase 2: backbone frozen, calibrator trainable.
+        """
+        phase = self.current_phase(epoch)
+        if phase == 1:
+            self._unfreeze_backbone()
+            self._freeze_calibrator()
+        else:
+            self._freeze_backbone()
+            self._unfreeze_calibrator()
+
+    def _freeze_backbone(self):
+        for p in self.base.parameters():
+            p.requires_grad = False
+
+    def _unfreeze_backbone(self):
+        for p in self.base.parameters():
+            p.requires_grad = True
+
+    def _freeze_calibrator(self):
+        for p in self.score_calibrator.parameters():
+            p.requires_grad = False
+
+    def _unfreeze_calibrator(self):
+        for p in self.score_calibrator.parameters():
+            p.requires_grad = True
+
+    def freeze_base(self):
+        self._freeze_backbone()
+
+    def unfreeze_base(self):
+        self._unfreeze_backbone()
+
     def _ensure_codebook(self, code_dim: int, device: torch.device):
+        """Lazily create the codebook on first forward pass."""
         if self._codebook is None:
             self._codebook = _SparseCodebook(
                 num_classes=self.num_classes,
                 code_dim=code_dim,
-                k=self._k_centroids,
-                ema_momentum=self._ema_momentum,
+                k=self._k,
+                ema_momentum=self._ema_mom,
             ).to(device)
             self._code_dim = code_dim
 
-    def _forward_with_code(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor]:
+    def codebook_ready(self) -> bool:
+        """True once the codebook has been initialized from real data."""
+        if self._codebook is None:
+            return False
+        return bool(self._codebook.initialised.all().item())
+
+    def get_codebook_stats(self) -> Optional[Dict]:
+        if self._codebook is None:
+            return None
+        return self._codebook.convergence_stats()
+
+    def _forward_with_code(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (embedding [B,256], logits [B,C], sparse_code [B,D])."""
         collector = _SparseCodeCollector().register(self.base)
         try:
             embedding = self.base.extract_embedding(x_stft, x_iq)
@@ -206,31 +257,39 @@ class SparseFingerprint_TS_DRSN(nn.Module):
 
         return embedding, logits, sparse_code
 
-    @torch.no_grad()
-    def collect_and_update(self, x_stft: torch.Tensor, x_iq: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """ Runs a forward pass and updates the EMA codebook using Known labels. """
+    def collect_and_update(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+            labels: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Phase 1 helper: one forward pass + EMA codebook update.
+        Unknown labels (-1) are silently ignored by the codebook.
+        """
         _, logits, code = self._forward_with_code(x_stft, x_iq)
         self._ensure_codebook(code.size(1), x_stft.device)
         self._codebook.update(code, labels)
         return logits
 
-    def forward_with_osr(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> Tuple[
-        torch.Tensor, torch.Tensor, Optional[Dict]]:
+    def forward_with_osr(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Dict]]:
+        """Returns logits [B, num_classes] and unknown_score [B]."""
         if x_stft.ndim != 4 or x_stft.shape[1] != 1:
             raise ValueError(f"Expected x_stft (N,1,F,T), got {tuple(x_stft.shape)}")
         if x_iq.ndim != 3 or x_iq.shape[1] != 2:
             raise ValueError(f"Expected x_iq (N,2,L), got {tuple(x_iq.shape)}")
 
-        embedding, logits, code = self._forward_with_code(x_stft, x_iq)
-
+        _, logits, code = self._forward_with_code(x_stft, x_iq)
         self._ensure_codebook(code.size(1), x_stft.device)
-        assert self._codebook is not None
 
         pred_class = logits.argmax(dim=1)
         ham_dist = self._codebook.hamming_distance(code, pred_class)
         max_prob = logits.softmax(dim=1).max(dim=1).values
 
-        # Calibrated score
         calib_input = torch.stack([ham_dist, 1.0 - max_prob], dim=1)
         unknown_score = self.score_calibrator(calib_input).squeeze(1)
 
@@ -240,23 +299,26 @@ class SparseFingerprint_TS_DRSN(nn.Module):
         logits, _, _ = self.forward_with_osr(x_stft, x_iq)
         return logits
 
-    def predict_with_rejection(self, x_stft: torch.Tensor, x_iq: torch.Tensor, unknown_threshold: float = 0.5):
+    def predict_with_rejection(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+            unknown_threshold: float = 0.5,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Returns predictions and confidence. Predictions == -1 if rejected."""
         logits, unknown_score, _ = self.forward_with_osr(x_stft, x_iq)
         probs = logits.softmax(dim=1)
         confidence, predictions = probs.max(dim=1)
+
         predictions = predictions.clone()
         predictions[unknown_score > unknown_threshold] = -1
         return predictions, confidence
 
     @torch.no_grad()
-    def extract_embedding(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+    def extract_embedding(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+    ) -> torch.Tensor:
         embedding, _, _ = self._forward_with_code(x_stft, x_iq)
         return embedding
-
-    def freeze_base(self):
-        for p in self.base.parameters():
-            p.requires_grad = False
-
-    def unfreeze_base(self):
-        for p in self.base.parameters():
-            p.requires_grad = True

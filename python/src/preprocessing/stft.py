@@ -4,8 +4,6 @@ import numpy as np
 
 def compute_stft(x: np.ndarray, win_length: int = 128, hop_length: int = 32, n_fft: int = 256) -> np.ndarray:
 
-    """ Deterministic STFT with phase preservation """
-
     if x.ndim != 1:
         raise ValueError("STFT expects 1D signal.")
 

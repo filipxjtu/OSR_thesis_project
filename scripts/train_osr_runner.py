@@ -1,5 +1,9 @@
 from pathlib import Path
+
+import torch
+
 from python.src.train import train_osr_model
+from python.src.train.osr_hparams import OSRHParams
 
 
 def find_project_root() -> Path:
@@ -11,30 +15,36 @@ def find_project_root() -> Path:
 
 
 def main():
-
     project_root = find_project_root()
 
-    # user parameters
-    seeds = [32, 54, 76]
+    # Sweep parameters
+    seeds = [321]
     n_per_class_list = [1000]
-    model_name = "lightweight"
     spec_version = "v2"
     epochs = 50
 
+    # Optional: You can override defaults here if needed
+    hparams = OSRHParams()
 
     for seed in seeds:
         for n in n_per_class_list:
+            print(f"\n=== OSR Training | seed={seed} | n={n} ===")
 
-            print(f"\n=== OSR | model={model_name} seed={seed} n={n} ===")
-
-            train_osr_model(
-                model_name=model_name,
+            trained_model = train_osr_model(
                 seed=seed,
                 n_per_class=n,
                 spec_version=spec_version,
                 project_root=project_root,
                 epochs=epochs,
+                hparams=hparams,
             )
+
+            # Clean up RAM between runs
+            del trained_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
 
 
 if __name__ == "__main__":

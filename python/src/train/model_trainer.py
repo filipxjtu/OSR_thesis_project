@@ -188,3 +188,5 @@ def train_model(
     print(f"Figures saved to: {figures_dir}")
     print(f"\nBest validation accuracy: {100 * best_val_acc:.2f}")
     print(f"Final TEST accuracy: {100 * test_acc:.2f} | Loss: {test_loss:.4f}")
+
+    return model
