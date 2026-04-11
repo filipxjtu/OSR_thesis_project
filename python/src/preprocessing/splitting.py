@@ -38,3 +38,40 @@ def split_dataset(x_stft: torch.Tensor, x_iq: torch.Tensor, y: torch.Tensor, tra
     val_set = Subset(dataset, val_indices)
 
     return train_set, val_set
+
+
+def split_unknown(
+        x_stft: torch.Tensor,
+        x_iq: torch.Tensor,
+        y: torch.Tensor,
+        train_ratio: float = 0.50,
+        val_ratio: float = 0.125,
+        seed: int = 42
+):
+    """
+    Randomly shuffles and splits unknown anomaly data into train, val, and test sets.
+    Default ratios: 50% Train, 12.5% Val, 37.5% Test.
+    """
+    total_len = len(y)
+    generator = torch.Generator().manual_seed(seed)
+
+    # Generate a perfectly shuffled list of indices
+    indices = torch.randperm(total_len, generator=generator)
+
+    # Calculate dynamic split points
+    train_end = int(train_ratio * total_len)
+    val_end = train_end + int(val_ratio * total_len)
+
+    # Slice the shuffled indices
+    train_indices = indices[:train_end]
+    val_indices = indices[train_end:val_end]
+    test_indices = indices[val_end:]
+
+    dataset = TensorDataset(x_stft, x_iq, y)
+
+    # Wrap in PyTorch Subsets
+    train_set = Subset(dataset, train_indices)
+    val_set = Subset(dataset, val_indices)
+    test_set = Subset(dataset, test_indices)
+
+    return train_set, val_set, test_set
