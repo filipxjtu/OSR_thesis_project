@@ -18,5 +18,5 @@ class OSRHParams:
     batch_size: int = 32
 
     # Loss Weights
-    lambda_osr: float = 0.20
-    lambda_entropy: float = 0.15
+    lambda_osr: float = 0.40
+    lambda_entropy: float = 0.10

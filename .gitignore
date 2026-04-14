@@ -5,11 +5,13 @@ artifacts/datasets/
 artifacts/checkpoints/
 artifacts/logs/
 artifacts/figs/
+artifacts/debug
 
 # Generated Reports
 reports/statistical/
 reports/validations/
 reports/figures/
+reports/archituctural
 
 # Python
 __pycache__/
@@ -23,6 +25,12 @@ env/
 venv/
 .venv/
 
+specs/v1_specs
+specs/
+
+contracts/
+
+
 # OS
 .DS_Store
 Thumbs.db
@@ -33,3 +41,6 @@ Thumbs.db
 
 # MATLAB
 *.asv
+
+.tmp.driveupload
+.tmp.drivedownload

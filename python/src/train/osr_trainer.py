@@ -30,25 +30,22 @@ def train_osr_model(
     if hparams is None:
         hparams = OSRHParams()
 
-    # Validation Gate
     report_dir = project_root / "reports" / "validations"
     validation_report = report_dir / f"validation_seed{seed}_n{n_per_class}_{spec_version}.json"
 
     if not validation_report.exists():
         raise RuntimeError("Validation reports missing. Run run_validation.py and run_val_unknowns.py first.")
 
-    # Setup
     torch.manual_seed(seed)
     device = resolve_device("auto")
 
     print(f"\n{'=' * 60}")
     print(f"SparseFingerprint OSR | seed={seed} | n={n_per_class}")
     print(f"Device        : {device}")
-    print(f"Phase 1 (backbone) : epochs  1 – {hparams.warmup_epochs}")
-    print(f"Phase 2 (calibrator): epochs  {hparams.warmup_epochs + 1} – {epochs}")
+    print(f"Phase 1 (backbone) : Dynamic (max {hparams.warmup_epochs} epochs)")
+    print(f"Phase 2 (calibrator): Dynamic (until epoch {epochs})")
     print(f"{'=' * 60}\n")
 
-    # Data
     datasets = load_osr_datasets(project_root, seed, n_per_class, spec_version)
 
     train_loader = create_train_loader(datasets["train"], hparams.batch_size, device)
@@ -57,7 +54,6 @@ def train_osr_model(
     test_loader_known = create_eval_loader(datasets["test_known"], hparams.batch_size, device)
     test_loader_osr = create_eval_loader(datasets["test_unknown"], hparams.batch_size, device)
 
-    # Model & Optimizers
     model = SparseFingerprint_TS_DRSN(
         num_classes=10,
         k_centroids=hparams.k_centroids,
@@ -68,7 +64,7 @@ def train_osr_model(
     ).to(device)
 
     opt_backbone = torch.optim.Adam(
-        model.base.parameters(),
+        list(model.base.parameters()) + list(model.arcface.parameters()),
         lr=hparams.lr_backbone, weight_decay=1e-4,
     )
     sched_backbone = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -76,7 +72,7 @@ def train_osr_model(
     )
 
     opt_calibrator = torch.optim.Adam(
-        list(model.score_calibrator.parameters()) + [model._log_temperature],
+        model.score_calibrator.parameters(),
         lr=hparams.lr_calibrator, weight_decay=1e-5,
     )
     sched_calibrator = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -92,13 +88,19 @@ def train_osr_model(
     print(f"{'Ep':<5} | {'Ph':<3} | {'Loss':<8} | {'KnAcc':<7} | {'AUROC':<7} | {'Recall':<7} | {'Codebook'}")
     print("-" * 65)
 
-    # Training Loop
     for epoch in range(1, epochs + 1):
-        phase = model.current_phase(epoch)
-        model.set_phase(epoch)
+
+        switched_this_epoch = False
+        was_phase_1 = not model.phase2_active
+        model.check_dynamic_phase_switch(epoch)
+        if was_phase_1 and model.phase2_active:
+            switched_this_epoch = True
+
+        phase = model.current_phase()
+        model.set_phase()
 
         if phase == 1:
-            avg_loss = train_phase1_epoch(model, train_loader, opt_backbone, criterion_ce, device)
+            avg_loss = train_phase1_epoch(model, train_loader, opt_backbone, criterion_ce, device, epoch=epoch)
             sched_backbone.step()
         else:
             avg_loss = train_phase2_epoch(
@@ -107,7 +109,6 @@ def train_osr_model(
             )
             sched_calibrator.step()
 
-        # Validation
         val_known_acc = _eval_known_acc(model, val_loader_known, device)
         val_auroc, val_recall = 0.0, 0.0
 
@@ -116,6 +117,9 @@ def train_osr_model(
 
         cb_stats = model.get_codebook_stats()
         cb_str = f"{float(cb_stats['pct_initialised']) * 100:.0f}%" if cb_stats else "—"
+
+        if switched_this_epoch:
+            cb_str += " (Phase 2 Triggered)"
 
         print(f"{epoch:02d}/{epochs} | P{phase}  | {avg_loss:<8.4f} | "
               f"{val_known_acc:<7.3f} | {val_auroc:<7.4f} | "
@@ -134,12 +138,10 @@ def train_osr_model(
             best_auroc = val_auroc
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
 
-    # Load Best Checkpoint
     if best_state is not None:
         model.load_state_dict(best_state)
         print(f"\nLoaded best Phase-2 checkpoint (val AUROC = {best_auroc:.4f})")
 
-    # Final Test Evaluation
     test_known_acc = _eval_known_acc(model, test_loader_known, device)
     test_auroc, test_recall = _eval_osr(model, test_loader_known, test_loader_osr, device)
     _, _, _, test_fpr = evaluate_osr(model, test_loader_known, test_loader_osr, device)
@@ -152,13 +154,12 @@ def train_osr_model(
     print(f"False alarm rate: {test_fpr:.4f}")
     print(f"{'=' * 52}\n")
 
-    # Save Artifacts
     ckpt_name = f"sparse_fingerprint_seed{seed}_n{n_per_class}.pt"
     ckpt_dir = prepare_unique_file(project_root / "artifacts" / "checkpoints", ckpt_name)
     torch.save(model.state_dict(), ckpt_dir)
 
     log_name = f"sparse_fingerprint_seed{seed}_n{n_per_class}.json"
-    log_dir = prepare_unique_file(project_root / "artifacts" / "logs" / "osr_training", log_name )
+    log_dir = prepare_unique_file(project_root / "artifacts" / "logs" / "osr_training", log_name)
     with open(log_dir, "w") as f:
         json.dump({
             "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -180,21 +181,20 @@ def train_osr_model(
     fig_dir = prepare_unique_file(fig_base_dir, fig_name)
     print(f"Generating OSR diagnostics in: {fig_dir}")
 
-    generate_osr_confusion_outputs(model, test_loader_known, test_loader_osr, device, fig_dir, unknown_threshold=0.5)
+    generate_osr_confusion_outputs(model, test_loader_known, test_loader_osr, device, fig_dir)
     plot_osr_feature_embedding(model, test_loader_known, test_loader_osr, device, fig_dir)
 
     return model
 
-# Internal evaluation helpers
+
 @torch.no_grad()
 def _eval_known_acc(model, loader, device) -> float:
-    """Closed-set accuracy on known-only val batches via backbone logits."""
+    """Closed-set accuracy on known-only val batches via ArcFace logits."""
     model.eval()
     correct, total = 0, 0
     for x_stft, x_iq, y in loader:
         x_stft, x_iq, y = x_stft.to(device), x_iq.to(device), y.to(device)
-        emb = model.base.extract_embedding(x_stft, x_iq)
-        logits = model.base.classifier(emb)
+        logits = model(x_stft, x_iq)
         correct += (logits.argmax(1) == y).sum().item()
         total += y.size(0)
     return correct / max(1, total)

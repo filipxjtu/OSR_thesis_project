@@ -15,8 +15,9 @@ def train_phase1_epoch(
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
         device: torch.device,
+        epoch: int = 1,
 ) -> float:
-    """Trains the backbone and updates the EMA codebook using known classes."""
+    """Trains the backbone, updates EMA, and applies ArcFace logic via known classes."""
     model.train()
     total_loss, total_samples = 0.0, 0
 
@@ -29,7 +30,7 @@ def train_phase1_epoch(
 
         optimizer.zero_grad()
 
-        logits = model.collect_and_update(x_stft[known], x_iq[known], y[known])
+        logits = model.collect_and_update(x_stft[known], x_iq[known], y[known], epoch=epoch)
         loss = criterion(logits, y[known])
 
         loss.backward()
@@ -126,6 +127,8 @@ def evaluate_osr(
 
     known_count = np.sum(known_mask)
     unknown_count = np.sum(unknown_mask)
+
+    # Standardized evaluation threshold to preserve cross-run apples-to-apples metrics
     rejected = all_scores > 0.5
 
     known_acc = float(np.mean(all_preds[known_mask] == all_labels[known_mask])) if known_count > 0 else 0.0

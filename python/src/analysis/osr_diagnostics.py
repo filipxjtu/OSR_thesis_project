@@ -25,10 +25,9 @@ def generate_osr_confusion_outputs(
         loader_osr: torch.utils.data.DataLoader | None,
         device: torch.device,
         out_dir: Path,
-        unknown_threshold: float = 0.5,
         n_classes: int = 10
 ):
-    """Generates and saves the OSR confusion matrix and per-class accuracies."""
+    """Generates and saves the OSR confusion matrix and per-class accuracies using dynamic thresholds."""
     out_dir.mkdir(parents=True, exist_ok=True)
     model.eval()
 
@@ -39,10 +38,9 @@ def generate_osr_confusion_outputs(
         if loader_known is not None:
             for x_stft, x_iq, y in loader_known:
                 x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-                logits, unknown_score, _ = model.forward_with_osr(x_stft, x_iq)
 
-                preds = torch.argmax(logits, dim=1)
-                preds[unknown_score > unknown_threshold] = -1
+                # NEW: Utilize the dynamic per-class thresholds
+                preds, _ = model.predict_with_rejection(x_stft, x_iq)
 
                 y_true.append(y.cpu().numpy())
                 y_predicts.append(preds.cpu().numpy())
@@ -51,10 +49,9 @@ def generate_osr_confusion_outputs(
         if loader_osr is not None:
             for x_stft, x_iq, y in loader_osr:
                 x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-                logits, unknown_score, _ = model.forward_with_osr(x_stft, x_iq)
 
-                preds = torch.argmax(logits, dim=1)
-                preds[unknown_score > unknown_threshold] = -1
+                # NEW: Utilize the dynamic per-class thresholds
+                preds, _ = model.predict_with_rejection(x_stft, x_iq)
 
                 y_true.append(y.cpu().numpy())
                 y_predicts.append(preds.cpu().numpy())
@@ -90,7 +87,7 @@ def generate_osr_confusion_outputs(
 
     plt.xlabel("Predicted Class", fontweight='bold', color=BLUE_II["dark"], labelpad=10)
     plt.ylabel("True Class", fontweight='bold', color=BLUE_II["dark"], labelpad=10)
-    plt.title(f"OSR Confusion Matrix (Threshold = {unknown_threshold:.2f})",
+    plt.title("OSR Confusion Matrix (Dynamic Per-Class Thresholds)",
               color=BLUE_II["dark"], fontweight='bold', pad=15)
 
     tick_marks = list(range(n_classes)) + ["Unknown"]
