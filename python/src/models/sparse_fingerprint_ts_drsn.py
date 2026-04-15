@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -16,7 +17,7 @@ class ArcMarginProduct(nn.Module):
     Forces maximum intra-class compactness and inter-class separation.
     """
 
-    def __init__(self, in_features: int, out_features: int, s: float = 30.0, m: float = 0.50):
+    def __init__(self, in_features: int, out_features: int, s: float = 16.0, m: float = 0.50):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -77,7 +78,6 @@ class _SparseCodeCollector:
             gap = getattr(block, "last_gap", None)
             if thresh is None or gap is None:
                 return
-
             survived = (gap >= thresh.squeeze(-1).squeeze(-1)).float()
             self._codes.append(survived)
 
@@ -85,14 +85,20 @@ class _SparseCodeCollector:
 
     def _make_iq_hook(self):
         def _hook(_m, _i, _o):
-            x = _o.view(_o.size(0), -1)
-            binary_code = (x > x.mean(dim=1, keepdim=True)).float()
+            # _o is already (B, out_features) after AdaptiveAvgPool1d + view in IQPhysicsBranch
+            binary_code = (_o > _o.mean(dim=1, keepdim=True)).float()
             self._codes.append(binary_code)
 
         return _hook
 
     def get_code(self) -> Optional[torch.Tensor]:
         if not self._codes:
+            warnings.warn(
+                "[SparseCodeCollector] No codes collected — hooks may have fired before "
+                "DRSN blocks populated last_threshold/last_gap.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
         return torch.cat(self._codes, dim=1)
 
@@ -104,18 +110,21 @@ class _SparseCodebook(nn.Module):
             code_dim: int,
             k: int = 4,
             ema_momentum: float = 0.95,
+            beta: float = 1.0,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.code_dim = code_dim
         self.k = k
         self.ema_momentum = ema_momentum
+        self.beta = beta
 
         self.register_buffer("centroids", torch.full((num_classes, k, code_dim), 0.5))
         self.register_buffer("initialised", torch.zeros(num_classes, k, dtype=torch.bool))
+        self.register_buffer("update_counts", torch.zeros(num_classes, k, dtype=torch.long))
 
     @torch.no_grad()
-    def update(self, codes: torch.Tensor, labels: torch.Tensor, current_momentum: float = 0.95, beta: float = 1.0):
+    def update(self, codes: torch.Tensor, labels: torch.Tensor, current_momentum: float = 0.95):
         for c in labels.unique():
             if c.item() == -1:
                 continue
@@ -130,6 +139,7 @@ class _SparseCodebook(nn.Module):
                 if not self.initialised[c_idx, kid]:
                     self.centroids[c_idx, kid] = class_codes[0]
                     self.initialised[c_idx, kid] = True
+                    self.update_counts[c_idx, kid] = 1
                     class_codes = class_codes[1:]
                     if class_codes.shape[0] == 0:
                         break
@@ -138,7 +148,7 @@ class _SparseCodebook(nn.Module):
                 dists = (class_codes - centroid).abs().mean(dim=1)
 
                 std_dist = dists.std(unbiased=False).item() if dists.size(0) > 1 else 0.0
-                assigned = class_codes[dists <= dists.mean() + (beta * std_dist)]
+                assigned = class_codes[dists <= dists.mean() + (self.beta * std_dist)]
 
                 if assigned.shape[0] == 0:
                     continue
@@ -146,8 +156,9 @@ class _SparseCodebook(nn.Module):
                 mean_assigned = assigned.mean(dim=0)
                 m = current_momentum
                 self.centroids[c_idx, kid] = m * centroid + (1 - m) * mean_assigned
+                self.update_counts[c_idx, kid] += assigned.shape[0]
 
-    def hamming_distance(self, codes: torch.Tensor, pred_class: torch.Tensor) -> torch.Tensor:
+    def code_distance(self, codes: torch.Tensor, pred_class: torch.Tensor) -> torch.Tensor:
         cents = self.centroids[pred_class]
         d = (codes.unsqueeze(1) - cents).abs().mean(dim=2)
         return d.min(dim=1).values
@@ -157,6 +168,7 @@ class _SparseCodebook(nn.Module):
             "mean_activation_per_class": self.centroids.mean(dim=[1, 2]),
             "spread_per_class": self.centroids.std(dim=1).mean(dim=1),
             "pct_initialised": self.initialised.float().mean(),
+            "mean_updates_per_centroid": self.update_counts.float().mean(),
         }
 
 
@@ -167,12 +179,15 @@ class SparseFingerprint_TS_DRSN(nn.Module):
             k_centroids: int = 4,
             ema_momentum: float = 0.95,
             warmup_epochs: int = 30,
+            codebook_beta: float = 1.0,
+            threshold_recal_interval: int = 5,
             use_pretrained: bool = False,
             pretrained_path: Optional[str] = None,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.warmup_epochs = warmup_epochs
+        self.threshold_recal_interval = threshold_recal_interval
 
         self.base = TS_MS_VA_DRSN(num_classes=num_classes)
 
@@ -189,18 +204,21 @@ class SparseFingerprint_TS_DRSN(nn.Module):
         self._codebook: Optional[_SparseCodebook] = None
         self._k = k_centroids
         self._ema_mom = ema_momentum
+        self._beta = codebook_beta
+
+        # Input: [code_distance, 1-max_prob, emb_norm] — LayerNorm aligns scales before the MLP
+        self.score_calibrator = nn.Sequential(
+            nn.LayerNorm(3),
+            nn.Linear(3, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, 16),
+            nn.ReLU(inplace=True),
+            nn.Linear(16, 1),
+            nn.Sigmoid(),
+        )
 
         self.phase2_active = False
         self.register_buffer("class_thresholds", torch.full((num_classes,), 0.5))
-
-        self.score_calibrator = nn.Sequential(
-            nn.Linear(2, 16),
-            nn.ReLU(inplace=True),
-            nn.Linear(16, 8),
-            nn.ReLU(inplace=True),
-            nn.Linear(8, 1),
-            nn.Sigmoid(),
-        )
 
     def current_phase(self) -> int:
         return 2 if self.phase2_active else 1
@@ -223,15 +241,29 @@ class SparseFingerprint_TS_DRSN(nn.Module):
             self.calibrate_class_thresholds()
             return True
 
-        if epoch < 25:
+        if epoch < 23:
             return False
 
         stats = self.get_codebook_stats()
-        if stats and stats["pct_initialised"] >= 1.0:
-            if stats["spread_per_class"].mean() < 0.05:
-                self.phase2_active = True
-                self.calibrate_class_thresholds()
-                return True
+        if stats is None:
+            return False
+
+        pct_init = float(stats["pct_initialised"])
+        mean_updates = float(stats["mean_updates_per_centroid"])
+        spread = float(stats["spread_per_class"].mean())
+
+        # Guard against triggering on the initial state where all k centroids
+        # are identical (spread ≈ 0 does not mean converged, just uninitialised)
+        genuinely_converged = (
+            pct_init >= 1.0
+            and mean_updates > self._k
+            and spread < 0.05
+        )
+
+        if genuinely_converged:
+            self.phase2_active = True
+            self.calibrate_class_thresholds()
+            return True
 
         return False
 
@@ -241,7 +273,7 @@ class SparseFingerprint_TS_DRSN(nn.Module):
             spreads = self._codebook.convergence_stats()["spread_per_class"]
             norm_spreads = spreads / (spreads.max() + 1e-6)
 
-            adjusted = base_threshold * (0.8 + 0.4 * (1- norm_spreads))
+            adjusted = base_threshold * (0.8 + 0.4 * (1 - norm_spreads))
             self.class_thresholds.copy_(adjusted.clamp(0.15, 0.85))
 
     def _freeze_backbone(self):
@@ -277,6 +309,7 @@ class SparseFingerprint_TS_DRSN(nn.Module):
                 code_dim=code_dim,
                 k=self._k,
                 ema_momentum=self._ema_mom,
+                beta=self._beta,
             ).to(device)
             self._code_dim = code_dim
 
@@ -306,7 +339,8 @@ class SparseFingerprint_TS_DRSN(nn.Module):
         sparse_code = collector.get_code()
 
         if sparse_code is None:
-            sparse_code = torch.zeros(x_stft.size(0), 1, device=x_stft.device)
+            fallback_dim = self._code_dim if self._code_dim is not None else 1
+            sparse_code = torch.zeros(x_stft.size(0), fallback_dim, device=x_stft.device)
 
         return embedding, logits, sparse_code
 
@@ -334,16 +368,18 @@ class SparseFingerprint_TS_DRSN(nn.Module):
         if x_iq.ndim != 3 or x_iq.shape[1] != 2:
             raise ValueError(f"Expected x_iq (N,2,L), got {tuple(x_iq.shape)}")
 
-        _, logits, code = self._forward_with_code(x_stft, x_iq, labels=None)
+        embedding, logits, code = self._forward_with_code(x_stft, x_iq, labels=None)
         self._ensure_codebook(code.size(1), x_stft.device)
 
         pred_class = logits.argmax(dim=1)
-        ham_dist = self._codebook.hamming_distance(code, pred_class)
+        code_dist = self._codebook.code_distance(code, pred_class)
 
-        # Un-scale ArcFace logits prior to softmax to prevent extreme confidence collapse
         max_prob = logits.softmax(dim=1).max(dim=1).values
 
-        calib_input = torch.stack([ham_dist, 1.0 - max_prob], dim=1)
+        emb_norm = embedding.norm(dim=1)
+        emb_norm_normalised = (emb_norm / (emb_norm.detach().mean() + 1e-6)).clamp(0, 3) / 3.0
+
+        calib_input = torch.stack([code_dist, 1.0 - max_prob, emb_norm_normalised], dim=1)
         unknown_score = self.score_calibrator(calib_input).squeeze(1)
 
         return logits, unknown_score, None
@@ -359,7 +395,6 @@ class SparseFingerprint_TS_DRSN(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         logits, unknown_score, _ = self.forward_with_osr(x_stft, x_iq)
 
-        # Un-scale ArcFace logits to retrieve natural probability confidence
         probs = logits.softmax(dim=1)
         confidence, predictions = probs.max(dim=1)
 

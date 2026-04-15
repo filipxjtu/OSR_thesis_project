@@ -48,7 +48,6 @@ def train_phase2_epoch(
         loader: DataLoader,
         optimizer: torch.optim.Optimizer,
         lambda_osr: float,
-        lambda_entropy: float,
         device: torch.device,
 ) -> float:
     """Trains the calibrator using the combined OSR loss."""
@@ -65,7 +64,6 @@ def train_phase2_epoch(
         loss = combined_loss(
             logits, unknown_score, y,
             lambda_osr=lambda_osr,
-            lambda_entropy=lambda_entropy,
         )
 
         loss.backward()
@@ -87,7 +85,9 @@ def evaluate_osr(
 ) -> tuple[float, float, float, float]:
     """Returns: (known_accuracy, auroc, unknown_recall, false_alarm_rate)"""
     model.eval()
-    all_labels, all_scores, all_preds = [], [], []
+    all_labels: list[np.ndarray] = []
+    all_scores: list[np.ndarray] = []
+    all_preds:  list[np.ndarray] = []
 
     if loader_known is not None:
         for x_stft, x_iq, y in loader_known:
@@ -110,29 +110,31 @@ def evaluate_osr(
     if not all_labels:
         return 0.0, 0.5, 0.0, 0.0
 
-    all_labels = np.concatenate(all_labels)
-    all_scores = np.concatenate(all_scores)
-    all_preds = np.concatenate(all_preds)
+    labels_arr = np.concatenate(all_labels)
+    scores_arr = np.concatenate(all_scores)
+    preds_arr  = np.concatenate(all_preds)
 
-    known_mask = all_labels != -1
-    unknown_mask = all_labels == -1
+    known_mask   = labels_arr != -1
+    unknown_mask = labels_arr == -1
 
-    binary_labels = np.zeros_like(all_labels)
+    binary_labels = np.zeros_like(labels_arr)
     binary_labels[unknown_mask] = 1
 
     try:
-        auroc = float(roc_auc_score(binary_labels, all_scores))
+        auroc = float(roc_auc_score(binary_labels, scores_arr))
     except ValueError:
         auroc = 0.5
 
-    known_count = np.sum(known_mask)
-    unknown_count = np.sum(unknown_mask)
+    known_count   = int(np.sum(known_mask))
+    unknown_count = int(np.sum(unknown_mask))
 
-    # Standardized evaluation threshold to preserve cross-run apples-to-apples metrics
-    rejected = all_scores > 0.5
+    # Use per-class thresholds to match predict_with_rejection behaviour
+    thresholds_np      = model.class_thresholds.cpu().numpy()
+    per_sample_thresh  = thresholds_np[preds_arr]
+    rejected           = scores_arr > per_sample_thresh
 
-    known_acc = float(np.mean(all_preds[known_mask] == all_labels[known_mask])) if known_count > 0 else 0.0
-    unknown_recall = float(np.mean(rejected[unknown_mask])) if unknown_count > 0 else 0.0
-    false_alarm_rate = float(np.mean(rejected[known_mask])) if known_count > 0 else 0.0
+    known_acc        = float(np.mean(preds_arr[known_mask] == labels_arr[known_mask])) if known_count > 0 else 0.0
+    unknown_recall   = float(np.mean(rejected[unknown_mask])) if unknown_count > 0 else 0.0
+    false_alarm_rate = float(np.mean(rejected[known_mask]))   if known_count > 0 else 0.0
 
     return known_acc, auroc, unknown_recall, false_alarm_rate
