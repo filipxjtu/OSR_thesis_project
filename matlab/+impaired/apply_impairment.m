@@ -47,10 +47,10 @@ function [x_imp, imp_params] = apply_impairment(x_clean, class_id, sample_index,
         spec.snr_mode = "range";
     end
     if ~isfield(spec, 'snr_train_db')
-        spec.snr_train_db = [-10, 5];
+        spec.snr_train_db = [-15, 15];
     end
     if ~isfield(spec, 'snr_eval_db')
-        spec.snr_eval_db = [-5, 10];
+        spec.snr_eval_db = [-10, 10];
     end
     if ~isfield(spec, 'snr_fixed_db')
         spec.snr_fixed_db = -6;
@@ -133,16 +133,21 @@ function [x_imp, imp_params] = apply_impairment(x_clean, class_id, sample_index,
             else
                 snr_range = spec.snr_eval_db;
             end
-
             assert(numel(snr_range) == 2 && snr_range(1) < snr_range(2), ...
                 'apply_impairment:BadSNRRange');
 
-            target_snr_db = snr_range(1) + ...
-                (snr_range(2) - snr_range(1)) * rand(1,1);
+            % --- Skewed sampling (if enabled) ---
+            if isfield(spec, 'snr_skew_gamma') && spec.snr_skew_gamma > 0
+                gamma = spec.snr_skew_gamma;
+                u = rand(1,1);
+                t = u ^ gamma;
+            else
+                t = rand(1,1);   % uniform
+            end
+            target_snr_db = snr_range(1) + (snr_range(2) - snr_range(1)) * t;
 
         case "fixed"
             target_snr_db = spec.snr_fixed_db;
-
         otherwise
             error('apply_impairment:BadSNRMode', ...
                 'snr_mode must be "range" or "fixed".');

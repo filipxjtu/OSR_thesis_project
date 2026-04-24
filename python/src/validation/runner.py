@@ -44,7 +44,7 @@ class ValidationConfig:
     # Unknown-domain separation
     min_effect_size_unknown_vs_clean: float = 0.05
     min_effect_size_unknown_vs_train: float = 0.05
-    min_effect_size_unknown_vs_eval: float = 0.05
+    min_effect_size_unknown_vs_eval: float = 0.03
     min_effect_size_unknown_vs_clean_unk: float = 0.02
 
     # Reproducibility

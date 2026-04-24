@@ -22,7 +22,7 @@ if ~exist(out_dir, 'dir'); mkdir(out_dir); end
 for class_id = spec.class_ids
 
     [x_clean,~,~] = clean.generate_clean_sample(class_id, sample_idx, spec);
-    [x_imp, ip]   = impaired.apply_impairment(x_clean, sample_idx, spec, mode);
+    [x_imp, ip]   = impaired.apply_impairment(x_clean, class_id, sample_idx, spec, mode);
 
     % --- invisible, large figure ---
     fig = figure('Visible','off', 'Position',[100 100 1600 900]);

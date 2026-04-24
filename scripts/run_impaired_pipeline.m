@@ -5,6 +5,7 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
         n_per_class (1,1) double {mustBeInteger, mustBePositive}
         dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
         mode (1,1) string
+        %xxx {mustBeInteger}
     end
 
     project_root = fileparts(fileparts(mfilename('fullpath')));
@@ -24,11 +25,17 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
 
     % --- OPTIONAL: override SNR here when needed ---
     spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [-15 5];
-    spec_local.snr_eval_db  = [-5 10];
+    spec_local.snr_train_db = [-15 15];
+    spec_local.snr_eval_db  = [-10 10];
     % OR
-    % spec_local.snr_mode = "fixed";
-    % spec_local.snr_fixed_db = -6;
+    %spec_local.snr_mode = "fixed";
+    %spec_local.snr_fixed_db = xxx;
+    
+    if mode == "train"
+        spec_local.snr_skew_gamma = 2;
+    else
+        spec_local.snr_skew_gamma = 1;
+    end
 
     % folders
     if ~exist('artifacts','dir'); mkdir('artifacts'); end

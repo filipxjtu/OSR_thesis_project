@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import torch
-
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
-
+from torch.utils.data import DataLoader, Dataset
 
 
 def create_train_loader(

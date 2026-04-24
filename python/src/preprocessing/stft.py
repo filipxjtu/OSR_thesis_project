@@ -29,3 +29,14 @@ def compute_stft(x: np.ndarray, win_length: int = 128, hop_length: int = 32, n_f
     s = np.stack(frames, axis=2)  # (c=1, F, T)
 
     return s
+
+
+def compute_if(x: np.ndarray) -> np.ndarray:
+    """Computes the instantaneous frequency via the derivative of unwrapped phase."""
+    if x.ndim != 1:
+        raise ValueError("IF expects 1D signal.")
+
+    phase = np.unwrap(np.angle(x))
+    inst_freq = np.gradient(phase)
+
+    return inst_freq

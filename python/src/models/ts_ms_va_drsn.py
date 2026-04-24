@@ -170,7 +170,7 @@ class IQPhysicsBranch(nn.Module):
     def __init__(self, out_features=128):
         super().__init__()
         self.net = nn.Sequential(
-            # Extract high-frequency phase features
+            # Extract high-frequency phase features (in_channels=2 for I and Q)
             nn.Conv1d(2, 32, kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm1d(32),
             nn.ReLU(inplace=True),
@@ -193,14 +193,47 @@ class IQPhysicsBranch(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.net(x)
-        return out.view(out.size(0), -1)  # Flatten to (B, out_features)
+        return out.view(out.size(0), -1)
+
+
+class IFPhysicsBranch(nn.Module):
+    """ 1D CNN to extract features directly from Instantaneous Frequency """
+
+    def __init__(self, out_features=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            # Extract phase-derivative features (in_channels=1 for IF)
+            nn.Conv1d(1, 32, kernel_size=15, stride=2, padding=3, bias=False),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
+
+            # Mid-level features
+            nn.Conv1d(32, 64, kernel_size=7, stride=2, padding=2, bias=False),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
+
+            # High-level representations
+            nn.Conv1d(64, out_features, kernel_size=5, stride=2, padding=1, bias=False),
+            nn.BatchNorm1d(out_features),
+            nn.ReLU(inplace=True),
+
+            # Global Average Pooling to 1D Vector
+            nn.AdaptiveAvgPool1d(1)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.net(x)
+        return out.view(out.size(0), -1)
 
 
 class TS_MS_VA_DRSN(nn.Module):
     """
-    Multi-Domain Fusion Network:
+    Multi-Domain Tri-Branch Fusion Network:
       - STREAM 1 (STFT): Multi-Scale 2D DRSN + Trajectory Branch
       - STREAM 2 (IQ): 1D Physics CNN
+      - STREAM 3 (IF): 1D Physics CNN for Phase Derivatives
       - Deep Late-Fusion -> Classifier
     """
 
@@ -239,16 +272,18 @@ class TS_MS_VA_DRSN(nn.Module):
         # STREAM 2: Physics Branch (IQ)
         self.iq_branch = IQPhysicsBranch(out_features=128)
 
+        # STREAM 3: Instantaneous Frequency Branch (IF)
+        self.if_branch = IFPhysicsBranch(out_features=128)
 
-        # MULTI-DOMAIN FUSION -> 128D from STFT + 128D from IQ = 256D Feature Vector
+        # MULTI-DOMAIN FUSION -> 128D (STFT) + 128D (IQ) + 128D (IF) = 384D Feature Vector
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.3),  # Prevent overfitting on the fused vector
-            nn.Linear(256, 128),
+            nn.Linear(384, 256),
             nn.ReLU(inplace=True),
-            nn.Linear(128, num_classes)
+            nn.Linear(256, num_classes)
         )
 
-    def _forward_backbone(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+    def _forward_backbone(self, x_stft: torch.Tensor, x_iq: torch.Tensor, x_if: torch.Tensor) -> torch.Tensor:
         # 1. Process STFT Stream
         stft_stem_feat = self.stft_stem(x_stft)
         drsn_feat = self.layer3(self.layer2(self.layer1(stft_stem_feat)))
@@ -261,21 +296,26 @@ class TS_MS_VA_DRSN(nn.Module):
         # 2. Process Raw IQ Stream
         iq_emb_flat = self.iq_branch(x_iq)  # (Batch, 128)
 
-        # 3. Concatenate Domains
-        multi_domain_emb = torch.cat([stft_emb_flat, iq_emb_flat], dim=1)  # (Batch, 256)
+        # 3. Process Instantaneous Frequency Stream
+        if_emb_flat = self.if_branch(x_if)  # (Batch, 128)
+
+        # 4. Concatenate Domains (384D)
+        multi_domain_emb = torch.cat([stft_emb_flat, iq_emb_flat, if_emb_flat], dim=1)
 
         return multi_domain_emb
 
-    def forward(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
+    def forward(self, x_stft: torch.Tensor, x_iq: torch.Tensor, x_if: torch.Tensor) -> torch.Tensor:
 
         if x_stft.ndim != 4 or x_stft.shape[1] != 1:
             raise ValueError(f"Expected x_stft (N,1,F,T), got {tuple(x_stft.shape)}")
         if x_iq.ndim != 3 or x_iq.shape[1] != 2:
             raise ValueError(f"Expected x_iq (N,2,1024), got {tuple(x_iq.shape)}")
+        if x_if.ndim != 3 or x_if.shape[1] != 1:
+            raise ValueError(f"Expected x_if (N,1,1024), got {tuple(x_if.shape)}")
 
-        embedding = self._forward_backbone(x_stft, x_iq)
+        embedding = self._forward_backbone(x_stft, x_iq, x_if)
         return self.classifier(embedding)
 
-    def extract_embedding(self, x_stft: torch.Tensor, x_iq: torch.Tensor) -> torch.Tensor:
-        """ Returns the 256D Multi-Domain Fused Vector for t-SNE plotting """
-        return self._forward_backbone(x_stft, x_iq)
+    def extract_embedding(self, x_stft: torch.Tensor, x_iq: torch.Tensor, x_if: torch.Tensor) -> torch.Tensor:
+        """ Returns the 384D Multi-Domain Fused Vector for t-SNE plotting """
+        return self._forward_backbone(x_stft, x_iq, x_if)

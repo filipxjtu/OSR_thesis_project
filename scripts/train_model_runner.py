@@ -18,9 +18,9 @@ def main():
 
     project_root = find_project_root()
 
-    models = ["ts_ms_va_drsn"]
+    models = ["asymmetric_trinet"]
     spec_version = "v2"
-    seeds = [32]
+    seeds = [321]
     n_per_class = [1000]
     epochs = 30
 

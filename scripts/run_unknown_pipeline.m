@@ -27,11 +27,13 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
     
     % --- OPTIONAL: override SNR here when needed ---
     spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [-10 5];
-    spec_local.snr_eval_db  = [-5 10];
+    spec_local.snr_train_db = [-18 10];
+    spec_local.snr_eval_db  = [-10 10];
         % OR
     % spec_local.snr_mode = "fixed";
     % spec_local.snr_fixed_db = -6;
+
+    spec_local.snr_skew_gamma = 1.5;
     
     % Folders
     if ~exist('artifacts','dir'); mkdir('artifacts'); end

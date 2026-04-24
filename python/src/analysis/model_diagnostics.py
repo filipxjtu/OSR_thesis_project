@@ -10,9 +10,7 @@ from sklearn.manifold import TSNE
 
 
 def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_classes=10):
-
     out_dir.mkdir(parents=True, exist_ok=True)
-
     model.eval()
 
     y_true = []
@@ -20,12 +18,14 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
     y_scores = []
 
     with torch.no_grad():
-        for x_stft, x_iq, y in dataloader:
-            x_stft, x_iq, y = x_stft.to(device), x_iq.to(device), y.to(device)
+        # Unpack the 3rd branch (x_if)
+        for x_stft, x_iq, x_if, y in dataloader:
+            x_stft, x_iq, x_if, y = x_stft.to(device), x_iq.to(device), x_if.to(device), y.to(device)
 
-            logits = model(x_stft, x_iq)
+            # Pass all 3 branches
+            logits = model(x_stft, x_iq, x_if)
             pobs = torch.nn.functional.softmax(logits, 1)
-            predicts = torch.argmax(logits,1)
+            predicts = torch.argmax(logits, 1)
 
             y_true.append(y.cpu().numpy())
             y_predicts.append(predicts.cpu().numpy())
@@ -37,7 +37,6 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
     # Confusion matrix
     cm = np.zeros((n_classes, n_classes), dtype=int)
-
     for t, p in zip(y_true, y_predicts):
         cm[t, p] += 1
 
@@ -45,7 +44,7 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
 
     # plotting confusion matrix
-    plt.figure(figsize=(6,5))
+    plt.figure(figsize=(6, 5))
     plt.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
     plt.colorbar(label="proportion")
 
@@ -60,11 +59,8 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
         for j in range(n_classes):
             plt.text(
                 j, i,
-                f"{cm_norm[i,j]:.2f}",
-                ha="center",
-                va="center",
-                fontsize=8,
-                color="black",
+                f"{cm_norm[i, j]:.2f}",
+                ha="center", va="center", fontsize=8, color="black",
             )
 
     plt.tight_layout()
@@ -73,43 +69,30 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
     # ROC curves
     y_true_bin = label_binarize(y_true, classes=list(range(n_classes)))
-
     plt.figure(figsize=(6, 5))
 
     for c in range(n_classes):
         fpr, tpr, _ = roc_curve(y_true_bin[:, c], y_scores[:, c])
         roc_auc = auc(fpr, tpr)
-
-        plt.plot(
-            fpr,
-            tpr,
-            label=f"class {c} (AUC={roc_auc:.2f})"
-        )
+        plt.plot(fpr, tpr, label=f"class {c} (AUC={roc_auc:.2f})")
 
     plt.plot([0, 1], [0, 1], 'k--')
-
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.title("Per-class ROC curves")
     plt.legend()
-
     plt.tight_layout()
     plt.savefig(out_dir / "roc_curves.png", dpi=300)
     plt.close()
 
-
     # per-class accuracy
     per_class_accuracy = {}
-
     for c in range(n_classes):
-
         idx = y_true == c
-
         if np.sum(idx) == 0:
             acc = 0.0
         else:
             acc = np.mean(y_predicts[idx] == y_true[idx])
-
         per_class_accuracy[f"class_{c}"] = float(acc)
 
     with open(out_dir / "per_class_accuracy.json", "w") as f:
@@ -117,18 +100,17 @@ def generate_confusion_outputs(model, dataloader, device, out_dir: Path, n_class
 
 
 def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=10):
-
     model.eval()
-
     embeddings = []
     labels = []
 
     with torch.no_grad():
-        for x_stft, x_iq, y in dataloader:
+        # Unpack the 3rd branch (x_if)
+        for x_stft, x_iq, x_if, y in dataloader:
+            x_stft, x_iq, x_if = x_stft.to(device), x_iq.to(device), x_if.to(device)
 
-            x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-
-            feat = model.extract_embedding(x_stft, x_iq)
+            # Pass all 3 branches
+            feat = model.extract_embedding(x_stft, x_iq, x_if)
 
             embeddings.append(feat.cpu().numpy())
             labels.append(y.numpy())
@@ -136,26 +118,13 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=10)
     embeddings = np.concatenate(embeddings)
     labels = np.concatenate(labels)
 
-    tsne = TSNE(
-        n_components=2,
-        perplexity=30,
-        init="pca",
-        random_state=42
-    )
-
+    tsne = TSNE(n_components=2, perplexity=30, init="pca", random_state=42)
     emb_2d = tsne.fit_transform(embeddings)
-    plt.figure(figsize=(6,6))
 
+    plt.figure(figsize=(6, 6))
     for c in range(n_classes):
-
         idx = labels == c
-
-        plt.scatter(
-            emb_2d[idx,0],
-            emb_2d[idx,1],
-            s=6,
-            label=f"class {c}"
-        )
+        plt.scatter(emb_2d[idx, 0], emb_2d[idx, 1], s=6, label=f"class {c}")
 
     plt.legend(markerscale=3)
     plt.title("CNN Feature Embedding (t-SNE)")
@@ -165,14 +134,12 @@ def plot_cnn_feature_embedding(model, dataloader, device, out_dir, n_classes=10)
     plt.savefig(out_dir / "cnn_feature_embedding.png", dpi=300)
     plt.close()
 
+
 def plot_threshold(thresholds, out_dir: Path):
-
     out_dir.mkdir(parents=True, exist_ok=True)
-
     block_mean_threshold = {}
 
     for i, t in enumerate(thresholds):
-
         block_mean_threshold[f"Block_{i}_mean_threshold"] = (t.mean().item())
 
         plt.figure()
@@ -180,9 +147,7 @@ def plot_threshold(thresholds, out_dir: Path):
         plt.title(f"Shrinkage Thresholds Block {i}")
         plt.xlabel("Channel")
         plt.ylabel("Threshold")
-
         plt.tight_layout()
-
         plt.savefig(out_dir / f"shrinkage_threshold_block_{i}.png", dpi=300)
         plt.close()
 

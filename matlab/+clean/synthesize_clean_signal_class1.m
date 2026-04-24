@@ -53,6 +53,12 @@ function x_clean = synthesize_clean_signal_class1(params, spec)
     % the clean signal
     x_clean = filter(h, 1, x_nonlinear);
 
+    a_bias = 0.5;
+    b_ap = [a_bias, 1];
+    a_ap = [1, b_ap];
+
+    x_clean = filter(b_ap, a_ap, x_clean);
+
     % Normalize to unit RMS
     rms_val = sqrt(mean(abs(x_clean).^2));
     assert(rms_val > 0, 'MTJ: RMS is zero before normalization.');

@@ -15,6 +15,7 @@ function spec = get_canonical_spec()
     spec.snr_train_db = [-10 5];
     spec.snr_eval_db  = [-5 10];
     spec.snr_fixed_db = -6;
+    spec.snr_skew_gamma = 1;
 
     % Residual oscillator effects
     spec.enable_cfo = true;
