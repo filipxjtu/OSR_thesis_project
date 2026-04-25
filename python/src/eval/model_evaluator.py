@@ -15,13 +15,12 @@ from sklearn.metrics import (
 )
 
 from python.src.dataio import load_artifact
-from python.src.models import TS_MS_VA_DRSN, AsymmetricTriNet
+from python.src.models import AsymmetricTriNet
 from python.src.preprocessing import build_feature_tensor
 from python.src.utils import create_eval_loader, resolve_device, FeatureTensorDataset
 
 
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
-    "ts_ms_va_drsn":     TS_MS_VA_DRSN,
     "asymmetric_trinet": AsymmetricTriNet,
 }
 

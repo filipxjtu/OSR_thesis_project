@@ -9,13 +9,13 @@ import seaborn as sns
 import torch
 from sklearn.manifold import TSNE
 
-# Blue II Palette
+
 BLUE_II = {
-    "dark": "#081d58",
-    "navy": "#253494",
+    "dark":  "#081d58",
+    "navy":  "#253494",
     "ocean": "#1d91c0",
-    "sky": "#41b6c4",
-    "gray": "#2c2c2c"
+    "sky":   "#41b6c4",
+    "gray":  "#2c2c2c",
 }
 
 
@@ -25,33 +25,23 @@ def generate_osr_confusion_outputs(
         loader_osr: torch.utils.data.DataLoader | None,
         device: torch.device,
         out_dir: Path,
-        n_classes: int = 10
+        n_classes: int = 10,
 ):
-    """Generates and saves the OSR confusion matrix and per-class accuracies using dynamic thresholds."""
     out_dir.mkdir(parents=True, exist_ok=True)
     model.eval()
 
     y_true, y_predicts = [], []
 
     with torch.no_grad():
-        # Process Knowns
-        if loader_known is not None:
-            for x_stft, x_iq, y in loader_known:
-                x_stft, x_iq = x_stft.to(device), x_iq.to(device)
+        for loader in (loader_known, loader_osr):
+            if loader is None:
+                continue
+            for x_stft, x_iq, x_if, y in loader:
+                x_stft = x_stft.to(device)
+                x_iq   = x_iq.to(device)
+                x_if   = x_if.to(device)
 
-                # NEW: Utilize the dynamic per-class thresholds
-                preds, _ = model.predict_with_rejection(x_stft, x_iq)
-
-                y_true.append(y.cpu().numpy())
-                y_predicts.append(preds.cpu().numpy())
-
-        # Process Unknowns (True label is already -1 in the dataset)
-        if loader_osr is not None:
-            for x_stft, x_iq, y in loader_osr:
-                x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-
-                # NEW: Utilize the dynamic per-class thresholds
-                preds, _ = model.predict_with_rejection(x_stft, x_iq)
+                preds, _ = model.predict_with_rejection(x_stft, x_iq, x_if)
 
                 y_true.append(y.cpu().numpy())
                 y_predicts.append(preds.cpu().numpy())
@@ -62,22 +52,18 @@ def generate_osr_confusion_outputs(
     y_true = np.concatenate(y_true)
     y_predicts = np.concatenate(y_predicts)
 
-    # Map -1 (Unknown) to index `n_classes` (10) for matrix positioning
-    y_true_mapped = np.where(y_true == -1, n_classes, y_true)
+    y_true_mapped     = np.where(y_true == -1,     n_classes, y_true)
     y_predicts_mapped = np.where(y_predicts == -1, n_classes, y_predicts)
 
     matrix_size = n_classes + 1
     cm = np.zeros((matrix_size, matrix_size), dtype=int)
-
     for t, p in zip(y_true_mapped, y_predicts_mapped):
         cm[t, p] += 1
 
-    # Normalize rows (True class distributions)
     with np.errstate(divide='ignore', invalid='ignore'):
         cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
         cm_norm = np.nan_to_num(cm_norm)
 
-    # Plot Confusion Matrix
     sns.set_theme(style="white")
     plt.figure(figsize=(9, 8))
     plt.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
@@ -86,7 +72,7 @@ def generate_osr_confusion_outputs(
     cbar.set_label("Proportion", rotation=270, labelpad=15)
 
     plt.xlabel("Predicted Class", fontweight='bold', color=BLUE_II["dark"], labelpad=10)
-    plt.ylabel("True Class", fontweight='bold', color=BLUE_II["dark"], labelpad=10)
+    plt.ylabel("True Class",      fontweight='bold', color=BLUE_II["dark"], labelpad=10)
     plt.title("OSR Confusion Matrix (Dynamic Per-Class Thresholds)",
               color=BLUE_II["dark"], fontweight='bold', pad=15)
 
@@ -94,7 +80,6 @@ def generate_osr_confusion_outputs(
     plt.xticks(range(matrix_size), tick_marks, rotation=45, ha='right')
     plt.yticks(range(matrix_size), tick_marks)
 
-    # Annotate cells
     for i in range(matrix_size):
         for j in range(matrix_size):
             plt.text(j, i, f"{cm_norm[i, j]:.2f}",
@@ -105,7 +90,6 @@ def generate_osr_confusion_outputs(
     plt.savefig(out_dir / "osr_confusion_matrix.png", dpi=300)
     plt.close()
 
-    # Save Per-Class Accuracy
     per_class_accuracy = {}
     for c in range(matrix_size):
         label_name = f"class_{c}" if c < n_classes else "unknown"
@@ -123,26 +107,23 @@ def plot_osr_feature_embedding(
         loader_osr: torch.utils.data.DataLoader | None,
         device: torch.device,
         out_dir: Path,
-        n_classes: int = 10
+        n_classes: int = 10,
 ):
-    """Extracts features and plots a 2D t-SNE projection of knowns vs unknowns."""
     out_dir.mkdir(parents=True, exist_ok=True)
     model.eval()
 
     embeddings, labels = [], []
 
     with torch.no_grad():
-        if loader_known is not None:
-            for x_stft, x_iq, y in loader_known:
-                x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-                feat = model.extract_embedding(x_stft, x_iq)
-                embeddings.append(feat.reshape(feat.size(0), -1).cpu().numpy())
-                labels.append(y.cpu().numpy())
+        for loader in (loader_known, loader_osr):
+            if loader is None:
+                continue
+            for x_stft, x_iq, x_if, y in loader:
+                x_stft = x_stft.to(device)
+                x_iq   = x_iq.to(device)
+                x_if   = x_if.to(device)
 
-        if loader_osr is not None:
-            for x_stft, x_iq, y in loader_osr:
-                x_stft, x_iq = x_stft.to(device), x_iq.to(device)
-                feat = model.extract_embedding(x_stft, x_iq)
+                feat = model.extract_embedding(x_stft, x_iq, x_if)
                 embeddings.append(feat.reshape(feat.size(0), -1).cpu().numpy())
                 labels.append(y.cpu().numpy())
 
@@ -152,11 +133,9 @@ def plot_osr_feature_embedding(
     embeddings = np.concatenate(embeddings)
     labels = np.concatenate(labels)
 
-    # t-SNE Projection
     tsne = TSNE(n_components=2, perplexity=30, init="pca", random_state=42)
     emb_2d = tsne.fit_transform(embeddings)
 
-    # Plotting
     sns.set_theme(style="whitegrid")
     plt.figure(figsize=(10, 8))
 
@@ -168,16 +147,15 @@ def plot_osr_feature_embedding(
             plt.scatter(
                 emb_2d[idx, 0], emb_2d[idx, 1],
                 s=15, alpha=0.7, color=palette[c],
-                label=f"Class {c}", edgecolors='none'
+                label=f"Class {c}", edgecolors='none',
             )
 
-    # Plot Unknowns vividly on top
     idx_unk = labels == -1
     if np.any(idx_unk):
         plt.scatter(
             emb_2d[idx_unk, 0], emb_2d[idx_unk, 1],
             s=35, color=BLUE_II["dark"], marker='X', alpha=0.9,
-            label="Unknown (Anomalies)"
+            label="Unknown (Anomalies)",
         )
 
     plt.legend(markerscale=1.5, bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False)

@@ -1,4 +1,4 @@
-function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
+function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed, x)
     % RUN_UNKNOWN_PIPELINE
     % specifically targets the OSR Unknown
     % classes (10-13) by temporarily overriding the spec.class_ids.
@@ -26,12 +26,12 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
     version = spec_local.spec_version;
     
     % --- OPTIONAL: override SNR here when needed ---
-    spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [5 15];
-    spec_local.snr_eval_db  = [5 15];
+    %spec_local.snr_mode = "range";
+    %spec_local.snr_train_db = [-15 15];
+    %spec_local.snr_eval_db  = [-10 10];
         % OR
-    % spec_local.snr_mode = "fixed";
-    % spec_local.snr_fixed_db = -6;
+    spec_local.snr_mode = "fixed";
+    spec_local.snr_fixed_db = 0;
 
     spec_local.snr_skew_gamma = 1;
     

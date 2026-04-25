@@ -50,7 +50,7 @@ def build_feature_tensor(
         x_if[i, 0, :] = compute_if(signal)
 
     x_stft = np.stack(features, axis=0)
-    assert x_stft.shape[1] == 1, "DatasetBuilder: Expected 1-channel STFT (log_mag)"
+    assert x_stft.shape[1] == 2, "DatasetBuilder: Expected 2-channel STFT"
 
     x_stft_tensor = torch.from_numpy(np.ascontiguousarray(x_stft.astype(np.float32)))
     x_iq_tensor = torch.from_numpy(np.ascontiguousarray(x_iq.astype(np.float32)))

@@ -17,13 +17,11 @@ def find_project_root() -> Path:
 def main():
     project_root = find_project_root()
 
-    # Sweep parameters
-    seeds = [321]
-    n_per_class_list = [1000]
+    seeds = [216]
+    n_per_class_list = [2500]
     spec_version = "v2"
     epochs = 50
 
-    # Optional: You can override defaults here if needed
     hparams = OSRHParams()
 
     for seed in seeds:
@@ -39,7 +37,6 @@ def main():
                 hparams=hparams,
             )
 
-            # Clean up RAM between runs
             del trained_model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

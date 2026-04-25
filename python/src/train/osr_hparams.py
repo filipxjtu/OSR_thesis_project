@@ -21,3 +21,4 @@ class OSRHParams:
 
     # Loss Weights
     lambda_osr: float = 0.40
+    lambda_supcon: float = 0.1

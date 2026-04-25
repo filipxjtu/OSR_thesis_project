@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from ..analysis import generate_confusion_outputs, plot_cnn_feature_embedding, plot_threshold
 from ..dataio import load_artifact
-from ..models import SimpleCNN, TS_MS_VA_DRSN, AsymmetricTriNet
+from ..models import SimpleCNN, AsymmetricTriNet
 from ..preprocessing import build_feature_tensor, split_dataset
 from ..train import train_one_epoch, evaluate, HParams
 from ..utils import (create_train_loader, create_eval_loader, resolve_device,
@@ -19,7 +19,6 @@ from ..legacy_models import LiteratureBaseline_VGG16, LiteratureBaseline_DenseNe
 
 MODEL_REGISTRY = {
     "simple_cnn": SimpleCNN,
-    "ts_ms_va_drsn": TS_MS_VA_DRSN,
     "asymmetric_trinet": AsymmetricTriNet,
     "resnet_18": LiteratureBaseline_ResNet18,
     "vgg_16": LiteratureBaseline_VGG16,

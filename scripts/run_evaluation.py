@@ -24,12 +24,12 @@ def main():
     models = ["asymmetric_trinet"]
 
     # The checkpoint(s) to load — what the model was trained on
-    ckpt_seeds        = [274]
-    ckpt_n_per_class  = [1500]
+    ckpt_seeds        = [216]
+    ckpt_n_per_class  = [2500]
 
     # The eval dataset(s) to test against — independent of the checkpoint
-    eval_seeds        = [32, 54, 76]
-    eval_n_per_class  = [500]
+    eval_seeds        = [400, 102, 276, 312, 154, 346, 145, 265]
+    eval_n_per_class  = [600]
     eval_spec_version = "v2"
 
     batch_size = 64
