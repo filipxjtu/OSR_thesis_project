@@ -5,10 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import librosa
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..dataio import load_artifact
 from ..preprocessing import build_feature_tensor
@@ -28,97 +26,15 @@ def _ensure_dir(path: Path):
     path.mkdir(parents=True, exist_ok=True)
 
 
-def plot_new_stft_features(x_raw, y, out_dir: Path, n_classes=10):
-    """Plot high-definition STFT spectrograms using raw signals"""
-    stft_dir = out_dir / "stft_plots"
-    _ensure_dir(stft_dir)
-
-    y = np.asarray(y).reshape(-1)
-
-    plt.rcParams.update({
-        "font.family": "sans-serif",
-        "axes.labelsize": 12,
-        "axes.titlesize": 14,
-    })
-
-    for c in range(n_classes):
-        idx_candidates = np.where(y == c)[0]
-        if len(idx_candidates) == 0:
-            continue
-
-        idx = idx_candidates[0]
-        signal = x_raw[:, idx]
-
-        # Handle complex signals
-        if np.iscomplexobj(signal):
-            signal = np.abs(signal)
-
-        # Compute high-definition STFT
-        D = librosa.stft(signal, n_fft=1024, hop_length=8, win_length=128)
-        spec_vis = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-
-        # Use the same visualization style as your original
-        vmax = np.max(spec_vis)
-        vmin = np.min(spec_vis) + (vmax - np.min(spec_vis)) * 0.2
-
-        im = ax.imshow(
-            spec_vis,
-            aspect="auto",
-            origin="lower",
-            cmap="mako",
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="bicubic",
-        )
-
-        ax.set_xlabel("Time Bin")
-        ax.set_ylabel("Frequency Bin")
-        ax.set_title(f"Class {c} - STFT Log-Magnitude", pad=20, color=BLUE_II["dark"], fontweight='bold')
-
-        # Add marginal plots (mean over time and frequency)
-        divider = make_axes_locatable(ax)
-        ax_time = divider.append_axes("top", 1.0, pad=0.1, sharex=ax)
-        ax_freq = divider.append_axes("right", 1.0, pad=0.1, sharey=ax)
-
-        ax_time.plot(np.mean(spec_vis, axis=0), color=BLUE_II["navy"], linewidth=1.5)
-        ax_freq.plot(
-            np.mean(spec_vis, axis=1),
-            np.arange(spec_vis.shape[0]),
-            color=BLUE_II["navy"],
-            linewidth=1.5,
-        )
-
-        ax_time.tick_params(labelbottom=False)
-        ax_freq.tick_params(labelleft=False)
-        ax_time.spines["top"].set_visible(False)
-        ax_time.spines["right"].set_visible(False)
-        ax_time.spines["left"].set_visible(False)
-        ax_freq.spines["top"].set_visible(False)
-        ax_freq.spines["right"].set_visible(False)
-        ax_freq.spines["bottom"].set_visible(False)
-
-        cbar = fig.colorbar(im, ax=ax_freq, fraction=0.05, pad=0.1)
-        cbar.set_label("Magnitude (dB)", rotation=270, labelpad=15)
-
-        plt.savefig(stft_dir / f"class_{c}_stft.png", dpi=300, bbox_inches="tight")
-        plt.close(fig)
-
-    plt.rcdefaults()
-
-
-
-
-
-def plot_time_domain_features(x, y, out_dir: Path, n_classes=10):
+def plot_time_domain_features(x, y, out_dir: Path):
     time_dir = out_dir / "time_domain_plots"
     _ensure_dir(time_dir)
 
     y = np.asarray(y).reshape(-1)
+    n_classes = sorted(np.unique(y))
     sns.set_theme(style="whitegrid")
 
-    for c in range(n_classes):
+    for c in n_classes:
         idx_candidates = np.where(y == c)[0]
         if len(idx_candidates) == 0:
             continue
@@ -142,77 +58,79 @@ def plot_time_domain_features(x, y, out_dir: Path, n_classes=10):
         plt.close()
 
 
-def plot_stft_features(x_feat, y, out_dir: Path, n_classes=10):
+def plot_stft_features(
+    x_feat: np.ndarray,
+    y: np.ndarray,
+    out_dir: Path,
+) -> None:
+    """Thesis‑level STFT plots: smooth, clean, no clutter, high contrast."""
     stft_dir = out_dir / "stft_plots"
     _ensure_dir(stft_dir)
 
     y = np.asarray(y).reshape(-1)
+    n_classes = sorted(np.unique(y))
 
-    plt.rcParams.update({
-        "font.family": "sans-serif",
-        "axes.labelsize": 12,
-        "axes.titlesize": 14,
-    })
+    # Use a crisp white style without grid lines
+    with plt.style.context("seaborn-v0_8-white"):
+        plt.rcParams.update({
+            "font.family": "sans-serif",
+            "font.size": 10,
+            "axes.labelsize": 12,
+            "axes.titlesize": 13,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+        })
 
-    for c in range(n_classes):
-        idx_candidates = np.where(y == c)[0]
-        if len(idx_candidates) == 0:
-            continue
+        for c in n_classes:
+            idx_candidates = np.where(y == c)[0]
+            if len(idx_candidates) == 0:
+                continue
 
-        idx = idx_candidates[0]
+            idx = idx_candidates[0]
+            spec_vis = x_feat[idx, 0]          # shape (F, T)
 
-        # channel 0 is already log1p(|STFT|)
-        spec_vis = x_feat[idx, 0]
+            # Robust contrast: clip extreme percentiles
+            vmin, vmax = np.percentile(spec_vis, [5, 99.9])
 
-        fig, ax = plt.subplots(figsize=(8, 6))
+            fig, ax = plt.subplots(figsize=(8, 6))
+            im = ax.imshow(
+                spec_vis,
+                aspect="auto",
+                origin="lower",
+                cmap="viridis",
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="bicubic",      # smooth, no visible pixels
+            )
 
-        # Use 'mako' for the deep blue to cyan transition
-        # vmin and vmax set the contrast so the noise drops to the background
-        vmax = np.max(spec_vis)
-        vmin = np.min(spec_vis) + (vmax - np.min(spec_vis)) * 0.2  # Clip bottom 20% of noise
+            ax.set_xlabel("Time Bin")
+            ax.set_ylabel("Frequency Bin")
+            ax.set_title(
+                f"Class {c} – STFT (log1p magnitude)",
+                color=BLUE_II["dark"],
+                fontweight="bold",
+                pad=15,
+            )
 
-        im = ax.imshow(
-            spec_vis,
-            aspect="auto",
-            origin="lower",
-            cmap="mako",
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="bicubic",
-        )
+            # Colour bar directly on the right (mimics your original look)
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.ax.tick_params(labelsize=9)
+            cbar.set_label(
+                "log1p(|STFT|)",
+                rotation=270,
+                labelpad=18,
+                fontsize=10,
+            )
 
-        ax.set_xlabel("Time Bin")
-        ax.set_ylabel("Frequency Bin")
-        ax.set_title(f"Class {c} - STFT Log-Magnitude", pad=20, color=BLUE_II["dark"], fontweight='bold')
+            sns.despine(ax=ax, trim=True)
+            plt.tight_layout()
+            plt.savefig(
+                stft_dir / f"class_{c}_stft.png",
+                dpi=300,
+                bbox_inches="tight",
+            )
+            plt.close(fig)
 
-        divider = make_axes_locatable(ax)
-        ax_time = divider.append_axes("top", 1.0, pad=0.1, sharex=ax)
-        ax_freq = divider.append_axes("right", 1.0, pad=0.1, sharey=ax)
-
-        ax_time.plot(np.mean(spec_vis, axis=0), color=BLUE_II["navy"], linewidth=1.5)
-        ax_freq.plot(
-            np.mean(spec_vis, axis=1),
-            np.arange(spec_vis.shape[0]),
-            color=BLUE_II["navy"],
-            linewidth=1.5,
-        )
-
-        ax_time.tick_params(labelbottom=False)
-        ax_freq.tick_params(labelleft=False)
-        ax_time.spines["top"].set_visible(False)
-        ax_time.spines["right"].set_visible(False)
-        ax_time.spines["left"].set_visible(False)
-        ax_freq.spines["top"].set_visible(False)
-        ax_freq.spines["right"].set_visible(False)
-        ax_freq.spines["bottom"].set_visible(False)
-
-        cbar = fig.colorbar(im, ax=ax_freq, fraction=0.05, pad=0.1)
-        cbar.set_label("log1p(|STFT|)", rotation=270, labelpad=15)
-
-        plt.savefig(stft_dir / f"class_{c}_stft.png", dpi=300, bbox_inches="tight")
-        plt.close(fig)
-
-    plt.rcdefaults()
 
 
 def plot_feature_energy(x_feat, y, out_dir: Path):
@@ -354,34 +272,50 @@ def generate_dataset_figures(
 ):
     dataset_dir = project_root / "artifacts" / "datasets"
     fig_dir = project_root / "reports" / "figures" / f"dataset_seed{seed}_n{n_per_class}_{spec_version}"
+    fig1_dir = project_root / "reports" / "figures" / f"unknown_seed{seed}_n{n_per_class}_{spec_version}"
 
     _ensure_dir(fig_dir)
 
     train_file = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_train.mat"
+    unknown_file = dataset_dir / "unknown" / f"unknown_dataset_{spec_version}_seed{seed}_n{n_per_class}.mat"
 
     train_artifact = load_artifact(train_file, load_params=False)
+    unknown_artifact = load_artifact(unknown_file, load_params=False)
 
     x_raw = train_artifact.X
-    y = np.asarray(train_artifact.y).reshape(-1)
+    x_unk = unknown_artifact.X
 
-    x_feat, _, y_feat = build_feature_tensor(train_artifact)
+    y = np.asarray(train_artifact.y).reshape(-1)
+    y_unk = np.asarray(unknown_artifact.y).reshape(-1)
+
+    x_feat, _, _, y_feat = build_feature_tensor(train_artifact)
+    x_feat = x_feat[:, :1, :, :]
+    x_unk_feat, _, _, y_unk_feat = build_feature_tensor(unknown_artifact)
+    x_unk_feat = x_unk_feat[:, :1, :, :]
 
     x_feat = x_feat.detach().cpu().numpy()
     y_feat = y_feat.detach().cpu().numpy().reshape(-1)
+    x_unk_feat = x_unk_feat.detach().cpu().numpy()
+    y_unk_feat = y_unk_feat.detach().cpu().numpy().reshape(-1)
+
 
     print("Generating Time Domain plots...")
     plot_time_domain_features(x_raw, y, fig_dir)
+    plot_time_domain_features(x_unk, y_unk, fig1_dir)
     print("Generating STFT plots...")
     plot_stft_features(x_feat, y_feat, fig_dir)
+    plot_stft_features(x_unk_feat, y_unk_feat, fig1_dir)
     print("Generating Distribution plots...")
-    plot_new_stft_features(x_raw, y, fig_dir)
-    print("Generating New Distribution plots...")
     plot_class_distribution(y, fig_dir)
+    plot_class_distribution(y_unk, fig1_dir)
     print("Generating Ridge plots...")
     plot_feature_energy(x_feat, y_feat, fig_dir)
+    plot_feature_energy(x_unk_feat, y_unk_feat, fig1_dir)
     print("Generating Mean Spectrum plots...")
     plot_feature_mean_spectrum(x_feat, y_feat, fig_dir)
+    plot_feature_mean_spectrum(x_unk_feat, y_unk_feat, fig1_dir)
     print("Generating t-SNE plot...")
     plot_tsne_embedding(x_feat, y_feat, fig_dir)
+    plot_tsne_embedding(x_unk_feat, y_unk_feat, fig1_dir)
 
     print(f"\nDataset figures saved to: {fig_dir}")

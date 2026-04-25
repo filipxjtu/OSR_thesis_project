@@ -21,7 +21,7 @@ def build_feature_tensor(
     # stft parameters
     win_length = 128
     hop_length = 32
-    N_fft = 256
+    N_fft = 1024
 
     x_raw = artifact.X  #(N, Ns)
     y = artifact.y.reshape(-1)
@@ -29,9 +29,10 @@ def build_feature_tensor(
     N = x_raw.shape[0]
     Ns = x_raw.shape[1]
 
-    x_iq = np.empty((Ns, 2, N), dtype=np.float32)
+    x_iq = np.empty((Ns, 3, N), dtype=np.float32)
     x_iq[:, 0, :] = np.real(x_raw).T
     x_iq[:, 1, :] = np.imag(x_raw).T
+    x_iq[:, 2, :] = np.abs(x_raw).T
 
     x_if = np.empty((Ns, 1, N), dtype=np.float32)
     features = []

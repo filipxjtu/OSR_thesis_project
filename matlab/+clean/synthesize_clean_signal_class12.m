@@ -11,6 +11,7 @@ function x_clean = synthesize_clean_signal_class12(params, spec)
     alpha = params.rvgpo_info.alpha;
     beta  = params.rvgpo_info.beta;
     L     = params.rvgpo_info.L;
+    A_ghost = params.rvgpo_info.A_ghost;
     
     t = (0:N-1)' / fs;
     
@@ -43,7 +44,7 @@ function x_clean = synthesize_clean_signal_class12(params, spec)
     end
     
     % Combine the legitimate skin return with the deceptive pull-off ghost
-    x = s_target + x_pull;
+    x = s_target + A_ghost * x_pull;
     
     % Apply amplitude
     x = params.A * x;

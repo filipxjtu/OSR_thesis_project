@@ -20,8 +20,8 @@ def main():
 
 
     # User parameters
-    seeds = [56]
-    n_per_class = 500
+    seeds = [216]
+    n_per_class = 2500
     spec_version = "v2"
 
     project_root = find_project_root()

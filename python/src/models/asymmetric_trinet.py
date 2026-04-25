@@ -146,7 +146,7 @@ class EnhancedSTFTBranch(nn.Module):
     def __init__(self, branch_dim=128):
         super().__init__()
         self.stem = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(2, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True)
         )
@@ -218,7 +218,7 @@ class AsymmetricTriNet(nn.Module):
         self.stft_branch = EnhancedSTFTBranch(branch_dim=branch_dim)
 
         self.iq_branch = nn.Sequential(
-            nn.Conv1d(2, 32, 7, stride=4, padding=3, bias=False),
+            nn.Conv1d(3, 32, 7, stride=4, padding=3, bias=False),
             nn.BatchNorm1d(32), nn.ReLU(inplace=True),
             SKBlock1D(32),
             InlineDRSN1D(32),

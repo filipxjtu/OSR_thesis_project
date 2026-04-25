@@ -63,7 +63,7 @@ function fields = get_active_fields(class_id)
         case 12  % RVGPOJ
             fields = ["A", ...
                 "rvgpo_info.alpha", "rvgpo_info.beta",  ...
-                "rvgpo_info.q", "rvgpo_info.L"];
+                "rvgpo_info.q", "rvgpo_info.L", "rvgpo_info.A_ghost"];
 
         case 13  % TFMJ
             fields = ["A", "delta_f", "fm"];

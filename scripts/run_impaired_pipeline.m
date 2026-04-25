@@ -25,14 +25,14 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
 
     % --- OPTIONAL: override SNR here when needed ---
     spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [-15 15];
-    spec_local.snr_eval_db  = [-10 10];
+    spec_local.snr_train_db = [5 15];
+    spec_local.snr_eval_db  = [5 15];
     % OR
     %spec_local.snr_mode = "fixed";
     %spec_local.snr_fixed_db = xxx;
     
     if mode == "train"
-        spec_local.snr_skew_gamma = 2;
+        spec_local.snr_skew_gamma = 1.000000001;
     else
         spec_local.snr_skew_gamma = 1;
     end
