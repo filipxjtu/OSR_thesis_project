@@ -72,7 +72,7 @@ function generate_stat_report_unknown(unknown_dataset)
     
     % Optional mapping for nice markdown tables
     anomaly_names = containers.Map({10, 11, 12, 13}, ...
-        {'Moving-Band Noise', 'Intermittent OFDM', 'RVGPO', 'Triangular FM'});
+        {'Moving-Band Noise', 'Intermittent OFDM', 'DSSS', 'Triangular FM'});
         
     for i = 1:height(pc)
         cid = pc.class_id(i);

@@ -21,7 +21,7 @@ def main():
     # ------------------------------------------------------------------ #
     # User parameters
     # ------------------------------------------------------------------ #
-    models = ["asymmetric_trinet"]
+    models = ["simple_cnn"]
 
     # The checkpoint(s) to load — what the model was trained on
     ckpt_seeds        = [216]

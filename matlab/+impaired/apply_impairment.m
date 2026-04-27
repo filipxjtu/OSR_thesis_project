@@ -137,13 +137,12 @@ function [x_imp, imp_params] = apply_impairment(x_clean, class_id, sample_index,
                 'apply_impairment:BadSNRRange');
 
             % --- Skewed sampling (if enabled) ---
-            if isfield(spec, 'snr_skew_gamma') && spec.snr_skew_gamma > 0
-                gamma = spec.snr_skew_gamma;
-                u = rand(1,1);
-                t = u ^ gamma;
+            if isfield(spec, 'snr_alpha') && isfield(spec, 'snr_beta')
+                t = betarnd(spec.snr_alpha, spec.snr_beta);
             else
                 t = rand(1,1);   % uniform
             end
+
             target_snr_db = snr_range(1) + (snr_range(2) - snr_range(1)) * t;
 
         case "fixed"

@@ -1,65 +1,76 @@
 function x_clean = synthesize_clean_signal_class12(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS12
-% Range-Velocity Gate Pull-Off (RVGPO) - Unknown Class 3
-% Explicit note about coupling:
-    % - Victim signal is an LFM (Class 2) using the same sample_index.
-    % - Models physical DRFM behavior where the ghost target dynamically walks away.
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS13
+% Direct-Sequence Spread Spectrum (DSSS) – Unknown Class
+%
+% Generates a BPSK‑modulated spreading waveform with:
+%  - random binary chip sequence
+%  - raised‑cosine pulse shaping (bandwidth control)
+%  - carrier upconversion
+%  - unit‑RMS normalisation
 
     N  = double(spec.N);
     fs = double(spec.fs);
-    
-    alpha = params.rvgpo_info.alpha;
-    beta  = params.rvgpo_info.beta;
-    L     = params.rvgpo_info.L;
-    A_ghost = params.rvgpo_info.A_ghost;
-    
-    t = (0:N-1)' / fs;
-    
-    % Generate LFM target (Victim "Skin Return")
-    target_params = clean.generate_sample_params(2, params.sample_index, spec);
-    s_target = clean.synthesize_clean_signal_class2(target_params, spec);
-    
-    % Force RMS = 0.5 prior to DRFM quantization
-    rms_target = sqrt(mean(abs(s_target).^2));
-    assert(rms_target > 0, 'RVGPO: target RMS is zero.');
-    s_target = 0.5 * s_target / rms_target;
-    
-    % DRFM Quantization
-    I_clip = max(-1, min(1, real(s_target)));
-    Q_clip = max(-1, min(1, imag(s_target)));
-    s_mem = round(I_clip * L) / L + 1i * round(Q_clip * L) / L;
-    
-    % Apply Dynamic Walk-Off
-    x_pull = complex(zeros(N, 1));
-    
-    % Precompute dynamic shift vectors
-    tau_n = round(alpha * (t.^2) * fs);         % Instantaneous delay in samples
-    phi_dop = 2 * pi * (0.5 * beta * (t.^2));   % Instantaneous Doppler phase
-    
-    for n = 1:N
-        src_idx = n - tau_n(n);
-        if src_idx >= 1 && src_idx <= N
-            x_pull(n) = s_mem(src_idx) * exp(1i * phi_dop(n));
+
+    A    = params.A;
+    beta = params.beta;
+    Rc   = params.Rc;
+    fc   = params.fc;
+    phi  = params.phi;
+
+    Tc = 1 / Rc;                     % chip duration (seconds)
+    Nc = ceil((N/fs) / Tc) + 1;      % enough chips to cover the whole observation
+
+    % --- random chip sequence (uses current RNG state) ---
+    chips = 2 * (randi([0,1], Nc, 1)) - 1;   % +/- 1
+
+    % --- raised‑cosine pulse shape (sampled at fs) ---
+    span = 6;                                  % symbol periods each side
+    t_filter = (-span*Tc : 1/fs : span*Tc)';   % time vector for impulse response
+    % Avoid exactly zero to prevent division by zero
+    tiny = 1e-12;
+    t_filter(abs(t_filter) < tiny) = tiny;
+
+    % Raised‑cosine formula (full, not root‑raised)
+    num = sin(pi * t_filter / Tc) .* cos(pi * beta * t_filter / Tc);
+    den = (pi * t_filter / Tc) .* (1 - (2 * beta * t_filter / Tc).^2);
+    h_rc = num ./ den;
+
+    % Correct the limit at t = 0
+    idx0 = (abs(t_filter) < 1e-12);
+    h_rc(idx0) = 1 - beta + 4*beta/pi;
+
+    h_rc = h_rc / sum(h_rc);          % normalise to unit area
+    Lh = length(h_rc);
+
+    % --- build impulse train ---
+    imp_train = zeros(N + Lh, 1);     % extra room for filter tail
+    for k = 1:Nc
+        t_k = (k-1) * Tc;
+        n0 = round(t_k * fs) + 1;     % nearest sample index (1‑based)
+        if n0 > 0 && n0 <= N + Lh
+            imp_train(n0) = chips(k);
         end
     end
-    
-    % Combine the legitimate skin return with the deceptive pull-off ghost
-    x = s_target + A_ghost * x_pull;
-    
-    % Apply amplitude
-    x = params.A * x;
-    
-    % Normalize to unit RMS
+
+    % --- apply pulse‑shaping filter ---
+    x_shaped = conv(imp_train, h_rc, 'same');   % 'same' keeps central N+Lh samples
+    % Keep only the valid N samples (discard filter transients)
+    x_base = x_shaped(1:N);
+
+    % --- upconvert to carrier ---
+    t = (0:N-1)' / fs;
+    x = A * x_base .* exp(1i * (2 * pi * fc * t + phi));
+
+    % --- normalise to unit RMS ---
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'RVGPO: RMS is zero before normalization.');
+    assert(rms_val > 0, 'DSSS: RMS is zero before normalization.');
     x_clean = x / rms_val;
-    
-    % Assertions
+
+    % --- assertions ---
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');
     assert(~all(imag(x_clean(:)) == 0), ...
         'Signal must have non-zero imaginary component.');
-    assert(all(isfinite(x_clean(:))), ...
-        'Signal contains NaN/Inf.');
+    assert(all(isfinite(x_clean(:))), 'Signal contains NaN/Inf.');
 end

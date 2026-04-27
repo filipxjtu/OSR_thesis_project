@@ -18,11 +18,19 @@ from ..utils import (
 from ..models import OsrSAF_TriNet
 from ..analysis import generate_osr_confusion_outputs, plot_osr_feature_embedding
 
-from .osr_engine import populate_codebook_epoch, train_phase2_epoch, evaluate_osr
+from .osr_engine import (
+    populate_codebook_epoch,
+    train_phase2_epoch,
+    evaluate_osr,
+    collect_validation_scores,
+)
 from .osr_hparams import OSRHParams
 
 
-CODEBOOK_FILL_EPOCHS = 3
+# Bumped from 3 → 5. With ~20k known samples and EMA momentum ramping from
+# 0.85 toward 0.95, three epochs is on the edge of "barely converged"; five
+# leaves comfortable margin without meaningfully extending wall time.
+CODEBOOK_FILL_EPOCHS = 5
 
 
 def train_osr_model(
@@ -66,6 +74,7 @@ def train_osr_model(
     print(f"Closed-set ckpt     : {pretrained_path.name}")
     print(f"Codebook fill epochs: {CODEBOOK_FILL_EPOCHS}")
     print(f"Phase 2 (calibrator): until epoch {epochs}")
+    print(f"Target FPR          : {hparams.target_fpr:.2f}")
     print(f"{'=' * 60}\n")
 
     datasets = load_osr_datasets(project_root, seed, n_per_class, spec_version)
@@ -101,7 +110,9 @@ def train_osr_model(
         print(f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}")
 
     model.phase2_active = True
-    model.calibrate_class_thresholds()
+    # Initial threshold via the formula fallback — replaced after epoch 1 of
+    # Phase 2 by the percentile-from-validation-scores method.
+    model.calibrate_class_thresholds_formula()
 
     opt_calibrator = torch.optim.Adam(
         model.score_calibrator.parameters(),
@@ -132,8 +143,18 @@ def train_osr_model(
         sched_calibrator.step()
         phase2_epoch_count += 1
 
+        # Recalibrate per-class thresholds from the actual validation-known
+        # score distribution. This replaces the old hand-crafted spread-based
+        # formula and is what makes the AUROC numbers actually translate into
+        # sensible recall / FPR.
         if phase2_epoch_count % hparams.threshold_recal_interval == 0:
-            model.calibrate_class_thresholds()
+            val_scores, val_preds = collect_validation_scores(
+                model, val_loader_known, device
+            )
+            if val_scores.numel() > 0:
+                model.calibrate_class_thresholds_from_scores(
+                    val_scores, val_preds, target_fpr=hparams.target_fpr
+                )
 
         val_known_acc = _eval_known_acc(model, val_loader_known, device)
         val_auroc, val_recall = _eval_osr(
@@ -164,6 +185,15 @@ def train_osr_model(
     if best_state is not None:
         model.load_state_dict(best_state)
         print(f"\nLoaded best calibrator checkpoint (val AUROC = {best_auroc:.4f})")
+
+    # After loading the best calibrator, rebuild thresholds one final time on
+    # validation knowns so the saved checkpoint and the test metrics use the
+    # same thresholds that the saved scores would imply.
+    val_scores, val_preds = collect_validation_scores(model, val_loader_known, device)
+    if val_scores.numel() > 0:
+        model.calibrate_class_thresholds_from_scores(
+            val_scores, val_preds, target_fpr=hparams.target_fpr
+        )
 
     test_known_acc = _eval_known_acc(model, test_loader_known, device)
     test_auroc, test_recall = _eval_osr(

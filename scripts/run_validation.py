@@ -20,7 +20,7 @@ def main():
 
 
     # User parameters
-    seeds = [216]
+    seeds = [38, 55]
     n_per_class = 2500
     spec_version = "v2"
 

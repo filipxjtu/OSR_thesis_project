@@ -35,6 +35,13 @@ def train_phase2_epoch(
         lambda_osr: float,
         device: torch.device,
 ) -> float:
+    """
+    Train the calibrator for one epoch on mixed knowns + proxy unknowns.
+
+    Uses forward_with_osr_logits so the loss can apply BCEWithLogitsLoss to
+    the raw calibrator logit, which avoids the vanishing-gradient near
+    sigmoid saturation that the old MSE-on-sigmoid path suffered from.
+    """
     model.train()
     for p in model.base.parameters():
         p.requires_grad = False
@@ -50,9 +57,15 @@ def train_phase2_epoch(
 
         optimizer.zero_grad()
 
-        logits, unknown_score, _ = model.forward_with_osr(x_stft, x_iq, x_if)
+        logits, unknown_score, unknown_logit = model.forward_with_osr_logits(
+            x_stft, x_iq, x_if
+        )
 
-        loss = combined_loss(logits, unknown_score, y, lambda_osr=lambda_osr)
+        loss = combined_loss(
+            logits, unknown_score, y,
+            lambda_osr=lambda_osr,
+            unknown_logit=unknown_logit,
+        )
 
         loss.backward()
         optimizer.step()
@@ -62,6 +75,36 @@ def train_phase2_epoch(
         total_samples += bs
 
     return total_loss / max(1, total_samples)
+
+
+@torch.no_grad()
+def collect_validation_scores(
+        model: nn.Module,
+        loader_known: DataLoader,
+        device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Run the calibrator over the validation KNOWNS and collect
+    (unknown_scores, predicted_classes). Used to set per-class thresholds
+    via the (1 - target_fpr) percentile.
+    """
+    model.eval()
+    scores: list[torch.Tensor] = []
+    preds:  list[torch.Tensor] = []
+
+    for x_stft, x_iq, x_if, _ in loader_known:
+        x_stft = x_stft.to(device)
+        x_iq   = x_iq.to(device)
+        x_if   = x_if.to(device)
+
+        logits, score, _ = model.forward_with_osr(x_stft, x_iq, x_if)
+        scores.append(score.detach().cpu())
+        preds.append(logits.argmax(dim=1).detach().cpu())
+
+    if not scores:
+        return torch.empty(0), torch.empty(0, dtype=torch.long)
+
+    return torch.cat(scores, dim=0), torch.cat(preds, dim=0)
 
 
 @torch.no_grad()

@@ -22,3 +22,12 @@ class OSRHParams:
     # Loss Weights
     lambda_osr: float = 0.40
     lambda_supcon: float = 0.1
+
+    # Threshold calibration
+    # Per-class threshold is set at the (1 - target_fpr) percentile of the
+    # unknown_score distribution on validation knowns. So a target_fpr of 0.10
+    # means: at this threshold, ~10% of validation knowns would be (wrongly)
+    # rejected as unknown. Lower values are stricter (fewer rejections, higher
+    # FPR risk on out-of-distribution knowns); higher values are more eager
+    # to flag unknown.
+    target_fpr: float = 0.10

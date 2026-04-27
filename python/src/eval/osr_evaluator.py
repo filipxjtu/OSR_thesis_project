@@ -54,18 +54,14 @@ def evaluate_osr_model(
             f"OSR checkpoint not found: {ckpt_path}\n"
             f"Run train_osr_runner first."
         )
-
+    eval_dataset_root = Path(f"C:/Users/user/Documents/MATLAB/eval_datasets")
     eval_known_path = (
-        project_root
-        / "artifacts"
-        / "datasets"
+        eval_dataset_root
         / "impaired"
         / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
     )
     eval_unknown_path = (
-        project_root
-        / "artifacts"
-        / "datasets"
+        eval_dataset_root
         / "unknown"
         / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}.mat"
     )

@@ -15,13 +15,14 @@ from sklearn.metrics import (
 )
 
 from python.src.dataio import load_artifact
-from python.src.models import AsymmetricTriNet
+from python.src.models import AsymmetricTriNet, SimpleCNN
 from python.src.preprocessing import build_feature_tensor
 from python.src.utils import create_eval_loader, resolve_device, FeatureTensorDataset
 
 
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "asymmetric_trinet": AsymmetricTriNet,
+    "simple_cnn": SimpleCNN,
 }
 
 NUM_CLASSES = 10

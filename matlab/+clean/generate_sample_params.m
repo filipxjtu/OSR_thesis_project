@@ -677,36 +677,69 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.G_b_range  = char("samples");
             params.units.taper_taps = char("integer");
 
-        case 12  % Range-Velocity Gate Pull-Off (RVGPO) / Unknown Class 3
+        case 12  % Direct Sequence Spread Spectrum (DSSS) / Unknown Class 3
             % Constraints
-            lims.A           = [0.8, 1.2];
-            lims.alpha_range = [5e4, 2e5];     % Range walk-off rate (samples/sec^2)
-            lims.beta_range  = [1e8, 5e8];     % Velocity walk-off rate (Hz/sec)
-            lims.q_choices   = [3, 4];         % ADC bits for DRFM emulation
-            lims.A_ghost_range = [1.2, 2.0];    % Ghost dominates skin
+            lims.A      = [0.8, 1.2];
+            lims.beta   = [0.2, 0.35];          % raised‑cosine roll‑off
+            lims.Rc     = [1e6, 3e6];           % chip rate (Hz)
+            lims.fc_range   = [0.5e6, 4.5e6];   % allowed carrier range
+            lims.phi_range  = [0, 2*pi];
+
+            params.A    = lims.A(1) + diff(lims.A) * rand(1);
+            params.beta = lims.beta(1) + diff(lims.beta) * rand(1);
+            params.Rc   = lims.Rc(1) + diff(lims.Rc) * rand(1);
+
+            % Occupied bandwidth ≈ (1+beta)*Rc
+            B_occ = (1 + params.beta) * params.Rc;
+
+            % Carrier frequency – keep whole signal inside Nyquist band
+            fc_min_valid = lims.fc_range(1) + B_occ/2;
+            fc_max_valid = lims.fc_range(2) - B_occ/2;
+            if fc_min_valid >= fc_max_valid
+                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
+            else
+                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+            end
+
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+
+            params.lims = lims;
+
+            params.units.A     = char("linear");
+            params.units.beta  = char("ratio");
+            params.units.Rc    = char("Hz");
+            params.units.fc    = char("Hz");
+            params.units.phi   = char("rad");
+            
+            % Constraints
+            %lims.A           = [0.8, 1.2];
+            %lims.alpha_range = [5e4, 2e5];     % Range walk-off rate (samples/sec^2)
+            %lims.beta_range  = [1e8, 5e8];     % Velocity walk-off rate (Hz/sec)
+            %lims.q_choices   = [3, 4];         % ADC bits for DRFM emulation
+            %lims.A_ghost_range = [1.2, 2.0];    % Ghost dominates skin
             
             % Sample amplitude
-            params.A = lims.A(1) + diff(lims.A) * rand(1);
+            %params.A = lims.A(1) + diff(lims.A) * rand(1);
             
             % Sample walk-off dynamics
-            rvgpo_info.alpha = lims.alpha_range(1) + diff(lims.alpha_range) * rand(1);
-            rvgpo_info.beta  = lims.beta_range(1) + diff(lims.beta_range) * rand(1);
-            rvgpo_info.A_ghost = lims.A_ghost_range(1) + diff(lims.A_ghost_range) * rand(1);
+            %rvgpo_info.alpha = lims.alpha_range(1) + diff(lims.alpha_range) * rand(1);
+            %rvgpo_info.beta  = lims.beta_range(1) + diff(lims.beta_range) * rand(1);
+            %rvgpo_info.A_ghost = lims.A_ghost_range(1) + diff(lims.A_ghost_range) * rand(1);
             
             % Quantization
-            rvgpo_info.q = lims.q_choices(randi(numel(lims.q_choices)));
-            rvgpo_info.L = 2^(rvgpo_info.q - 1) - 1;
+            %rvgpo_info.q = lims.q_choices(randi(numel(lims.q_choices)));
+            %rvgpo_info.L = 2^(rvgpo_info.q - 1) - 1;
             
-            params.rvgpo_info = rvgpo_info;
-            params.lims = lims;
+            %params.rvgpo_info = rvgpo_info;
+            %params.lims = lims;
             
             % Units
-            params.units.A     = char("linear");
-            params.units.alpha = char("samples/s^2");
-            params.units.beta  = char("Hz/s");
-            params.units.q     = char("bits");
-            params.units.L     = char("integer");
-            params.units.A_ghost = char("ratio");
+            %params.units.A     = char("linear");
+            %params.units.alpha = char("samples/s^2");
+            %params.units.beta  = char("Hz/s");
+            %params.units.q     = char("bits");
+            %params.units.L     = char("integer");
+            %params.units.A_ghost = char("ratio");
 
         case 13  % Triangular FM (TFM) / Unknown Class 4
             % Constraints

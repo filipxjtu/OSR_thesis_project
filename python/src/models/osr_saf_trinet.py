@@ -25,11 +25,13 @@ What this file is, in plain terms:
   - We treat the 256-D fingerprint, L2-normalized, as the per-sample identity
     code. Per class, we keep an EMA codebook of k centroids in this space.
   - At inference: cosine distance from the predicted class' nearest centroid is
-    the OSR signal. A small MLP calibrator combines this distance with softmax
-    confidence and embedding norm into a [0,1] unknown-score.
-  - Training is two-phase: P1 trains the backbone (CE + SupCon) and populates
-    the codebook online. P2 freezes the backbone and trains the calibrator on
-    proxy unknowns. Per-class thresholds are recalibrated periodically in P2.
+    the OSR signal, AS IS the margin between the predicted class and the
+    runner-up class. A small MLP calibrator combines these and a few softmax
+    features into a [0,1] unknown-score.
+  - Training is two-phase: P1 fills the per-class cosine codebook (frozen
+    backbone). P2 trains the calibrator on proxy unknowns. Per-class
+    thresholds are recalibrated from the ACTUAL score distribution on the
+    validation knowns (data-driven, not formula-driven).
 
 Why pre-SupCon fingerprint and not the SupCon projection itself:
   - SupCon is trained only on knowns and only with same-vs-different-class
@@ -40,6 +42,21 @@ Why pre-SupCon fingerprint and not the SupCon projection itself:
   - Using the pre-projection fingerprint with cosine distance gives us the
     discriminative shape CE+SupCon trained, plus the unknown-detection room
     that the projection would have collapsed.
+
+Diagnostic notes (for the bug fix in this revision):
+  - Original calibrator received only the distance to the PREDICTED class.
+    It had no way to see the discriminative margin between the predicted class
+    and the next-best class — which is the actual OSR signal: a known sample
+    is close to its true class AND comfortably far from all others, while an
+    unknown is roughly equidistant from several classes.
+  - Original calibrator used `LayerNorm(3)` at input. With only 3 features,
+    LN normalizes ACROSS the 3 features per sample, destroying absolute scale
+    information that IS the OSR signal (e.g. "code_dist=0.05 small" vs
+    "code_dist=0.50 large" become similar relative-shape patterns after LN).
+  - Original threshold calibration was a hand-crafted formula based on
+    codebook spread, never looking at the actual unknown_score distribution
+    on knowns. Replaced with percentile-from-validation-knowns calibration
+    targeting a configurable false-alarm rate.
 """
 
 
@@ -148,13 +165,29 @@ class _CosineCodebook(nn.Module):
         pred_class: (B,)   — predicted class index per sample.
         Returns: (B,) cosine distance to the nearest centroid of the predicted class.
         """
-        # Per-sample: gather the k centroids of the predicted class, normalize, distance.
-        # Vectorized: build (B, k, D), distance against codes, take min over k.
         cents = self.centroids[pred_class]                                      # (B, k, D)
         cents_normed = F.normalize(cents, p=2, dim=-1)
         sim = (codes.unsqueeze(1) * cents_normed).sum(dim=-1)                   # (B, k)
         dists = 1.0 - sim                                                       # cosine distance
         return dists.min(dim=1).values                                          # (B,)
+
+    @torch.no_grad()
+    def code_distance_all_classes(self, codes: torch.Tensor) -> torch.Tensor:
+        """
+        codes: (B, D) — L2-normalized.
+        Returns: (B, C) cosine distance to the nearest centroid of EACH class.
+
+        This is the discriminative-margin signal: for an unknown, distances to
+        the top-2 classes are typically close (ambiguous); for a clean known,
+        the predicted-class distance is small and all others are large.
+        """
+        # centroids: (C, k, D) → normalize on read
+        cents_normed = F.normalize(self.centroids, p=2, dim=-1)                 # (C, k, D)
+        # codes: (B, D); we want sim of every code to every (c, k) centroid.
+        # sim[b, c, k] = codes[b] · cents_normed[c, k]
+        sim = torch.einsum("bd,ckd->bck", codes, cents_normed)                  # (B, C, k)
+        dists = 1.0 - sim                                                       # cosine distance
+        return dists.min(dim=-1).values                                         # (B, C) per-class min
 
     def convergence_stats(self) -> Dict[str, torch.Tensor]:
         # `spread_per_class`: mean pairwise cosine distance among that class' k centroids.
@@ -175,14 +208,26 @@ class _CosineCodebook(nn.Module):
         }
 
 
+# Number of input features the calibrator MLP consumes.
+# 1. code_dist           — cosine dist to nearest centroid of predicted class (was original)
+# 2. 1 - max_prob        — softmax uncertainty                                 (was original)
+# 3. emb_norm_normalised — fingerprint magnitude relative to batch mean        (was original)
+# 4. runner_up_dist      — cosine dist to nearest centroid of runner-up class  (NEW)
+# 5. margin              — runner_up_dist - code_dist (≥ 0 when classifier
+#                          agrees with codebook; near 0 when ambiguous)        (NEW)
+# 6. logit_margin        — top-1 logit minus top-2 logit                       (NEW)
+_CALIB_INPUT_DIM = 6
+
+
 class OsrSAF_TriNet(nn.Module):
     """
     Sparse Activation Fingerprint OSR on top of AsymmetricTriNet.
 
-    Phase 1: train backbone with CE + SupCon (delegated to the trinet's joint
-             forward), and populate the per-class cosine codebook online.
+    Phase 1: load pretrained backbone, populate the per-class cosine codebook
+             (frozen backbone, codebook fill only).
     Phase 2: freeze backbone, train the score_calibrator on proxy unknowns,
-             periodically recalibrate per-class thresholds.
+             periodically recalibrate per-class thresholds from the validation
+             score distribution.
 
     The public API matches the old SparseFingerprint_TS_DRSN so osr_engine.py
     and osr_diagnostics.py only need their tuple unpacking widened from
@@ -244,16 +289,18 @@ class OsrSAF_TriNet(nn.Module):
             beta=codebook_beta,
         )
 
-        # Score calibrator: [code_dist, 1 - max_prob, emb_norm_normalised] -> [0, 1].
-        # LayerNorm so the three features arrive on comparable scales.
+        # Score calibrator: 6 features → unknown-score logit.
+        # The final sigmoid is applied OUTSIDE the module so the loss can
+        # use BCEWithLogitsLoss (numerically stable, no vanishing-gradient
+        # near saturation). We do NOT prepend any LayerNorm — with only a
+        # handful of features, LN normalizes across features per sample
+        # and destroys the absolute-scale signal we actually care about.
         self.score_calibrator = nn.Sequential(
-            nn.LayerNorm(3),
-            nn.Linear(3, 32),
+            nn.Linear(_CALIB_INPUT_DIM, 32),
             nn.ReLU(inplace=True),
             nn.Linear(32, 16),
             nn.ReLU(inplace=True),
             nn.Linear(16, 1),
-            nn.Sigmoid(),
         )
 
         self.phase2_active = False
@@ -279,10 +326,12 @@ class OsrSAF_TriNet(nn.Module):
 
         if epoch >= self.warmup_epochs:
             self.phase2_active = True
-            self.calibrate_class_thresholds()
+            # Initial threshold uses the formula fallback; once Phase 2 has
+            # produced any scores, the trainer will switch to the percentile
+            # method via calibrate_class_thresholds_from_scores().
+            self.calibrate_class_thresholds_formula()
             return True
 
-        # Earliest a meaningful "converged" check makes sense
         if epoch < 23:
             return False
 
@@ -294,12 +343,6 @@ class OsrSAF_TriNet(nn.Module):
         mean_updates = float(stats["mean_updates_per_centroid"])
         spread = float(stats["spread_per_class"].mean())
 
-        # NOTE on the spread threshold: we now use cosine spread (not L1 magnitude),
-        # so the "small spread" criterion lives in [0, 2]. A class whose k centroids
-        # have collapsed to one mode has spread ≈ 0; well-separated multi-mode
-        # classes can sit comfortably above 0.1. The 0.05 cap below mirrors the
-        # spirit of the old check: only trigger when centroids have genuinely
-        # settled (not just initialised to identical values).
         genuinely_converged = (
             pct_init >= 1.0
             and mean_updates > self._k
@@ -308,19 +351,79 @@ class OsrSAF_TriNet(nn.Module):
 
         if genuinely_converged:
             self.phase2_active = True
-            self.calibrate_class_thresholds()
+            self.calibrate_class_thresholds_formula()
             return True
 
         return False
 
+    # -----------------------------------------------------------------
+    # Threshold calibration — FORMULA fallback (legacy, used as P2 init)
+    # -----------------------------------------------------------------
     @torch.no_grad()
-    def calibrate_class_thresholds(self, base_threshold: float = 0.5):
+    def calibrate_class_thresholds_formula(self, base_threshold: float = 0.5):
+        """
+        Spread-based fallback used ONLY for the very first Phase-2 step,
+        before any unknown_scores have been observed. Once we have scores,
+        switch to calibrate_class_thresholds_from_scores().
+        """
         spreads = self._codebook.convergence_stats()["spread_per_class"]
         norm_spreads = spreads / (spreads.max() + 1e-6)
-        # Tighter classes (low spread) → slightly lower threshold (easier to reject deviations).
-        # Looser classes (high spread) → slightly higher threshold (more tolerant).
+        # Tighter classes (low spread) → slightly lower threshold.
+        # Looser classes (high spread) → slightly higher threshold.
         adjusted = base_threshold * (0.8 + 0.4 * (1 - norm_spreads))
         self.class_thresholds.copy_(adjusted.clamp(0.15, 0.85))
+
+    # Backward-compat alias — old trainer / external code may call this name
+    @torch.no_grad()
+    def calibrate_class_thresholds(self, base_threshold: float = 0.5):
+        self.calibrate_class_thresholds_formula(base_threshold=base_threshold)
+
+    # -----------------------------------------------------------------
+    # Threshold calibration — DATA-DRIVEN (the new path)
+    # -----------------------------------------------------------------
+    @torch.no_grad()
+    def calibrate_class_thresholds_from_scores(
+            self,
+            scores: torch.Tensor,
+            pred_classes: torch.Tensor,
+            target_fpr: float = 0.10,
+            min_per_class: int = 30,
+    ) -> None:
+        """
+        Set per-class thresholds from the empirical score distribution on
+        validation KNOWNS. For each class c, the threshold is the
+        (1 - target_fpr) percentile of unknown_scores assigned to predicted
+        class c. By construction, at this threshold the false-alarm rate on
+        the validation knowns is ~target_fpr per class.
+
+        scores:       (N,) calibrator outputs (sigmoid-applied, in [0,1]).
+        pred_classes: (N,) predicted class for each sample.
+        target_fpr:   fraction of validation knowns we accept rejecting (e.g. 0.10).
+        min_per_class: if a class has fewer than this many samples, fall back
+                       to the global percentile across all knowns instead.
+        """
+        scores = scores.detach().to(self.class_thresholds.device).float()
+        pred_classes = pred_classes.detach().to(self.class_thresholds.device).long()
+
+        if scores.numel() == 0:
+            return
+
+        # Global percentile as a sane fallback.
+        q = max(0.0, min(1.0, 1.0 - target_fpr))
+        global_thr = float(torch.quantile(scores, q).item())
+
+        new_thresh = self.class_thresholds.clone()
+        for c in range(self.num_classes):
+            mask = pred_classes == c
+            n = int(mask.sum().item())
+            if n < min_per_class:
+                new_thresh[c] = global_thr
+                continue
+            class_scores = scores[mask]
+            new_thresh[c] = torch.quantile(class_scores, q)
+
+        # Clamp to keep numerics tame; nothing else.
+        self.class_thresholds.copy_(new_thresh.clamp(0.05, 0.95))
 
     # -----------------------------------------------------------------
     # Freezing helpers
@@ -341,7 +444,6 @@ class OsrSAF_TriNet(nn.Module):
         for p in self.score_calibrator.parameters():
             p.requires_grad = True
 
-    # Convenience aliases the trainer expects
     def freeze_base(self):
         self._freeze_backbone()
 
@@ -372,7 +474,8 @@ class OsrSAF_TriNet(nn.Module):
 
         Re-implements the trinet's forward path so we can pull the 256-D
         fingerprint out without doing two forward passes. Mirrors the trinet's
-        own `forward` exactly — modality dropout, fusion, classifier — but
+        own `forward` exactly — modality dropout (gated on self.training,
+        which is False once base.eval() is called), fusion, classifier — but
         also exposes `fp` and (optionally) the SupCon projection.
         """
         f1 = self.base.stft_branch(x_stft)
@@ -398,18 +501,10 @@ class OsrSAF_TriNet(nn.Module):
             labels: torch.Tensor,
             epoch: int = 1,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Phase-1 training step. Returns (logits, supcon_z) for joint CE+SupCon
-        loss. Side-effect: updates the codebook with this batch's L2-normalized
-        fingerprints (only known samples; callers must have filtered already).
-        """
         fp, logits, z = self._backbone_outputs(x_stft, x_iq, x_if, want_supcon=True)
 
-        # L2-normalize the fingerprint for cosine codebook update
         code = F.normalize(fp.detach(), p=2, dim=1)
 
-        # EMA momentum ramp: start lower so cold-start centroids move fast,
-        # cap at the configured value once warmed up. Same shape as the old code.
         current_momentum = min(self._ema_mom, 0.85 + (self._ema_mom - 0.85) * (epoch / max(1, self.warmup_epochs)))
         self._codebook.update(code, labels, current_momentum=current_momentum)
 
@@ -426,6 +521,9 @@ class OsrSAF_TriNet(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.forward_phase1(x_stft, x_iq, x_if, labels, epoch=epoch)
 
+    # -----------------------------------------------------------------
+    # OSR-aware forward
+    # -----------------------------------------------------------------
     def forward_with_osr(
             self,
             x_stft: torch.Tensor,
@@ -434,7 +532,14 @@ class OsrSAF_TriNet(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Dict]]:
         """
         Inference / Phase-2 forward.
-        Returns (logits, unknown_score, None). Third slot kept for API parity.
+        Returns (logits, unknown_score, None).
+            unknown_score is sigmoid-applied, in [0, 1] — public API contract.
+
+        Internally, the calibrator outputs LOGITS (no sigmoid in the head);
+        the loss in osr_utils.combined_loss can therefore use BCEWithLogitsLoss
+        for numerical stability. We apply sigmoid here so the rest of the
+        pipeline (predict_with_rejection, evaluator, threshold comparisons)
+        keeps working unchanged.
         """
         if x_stft.ndim != 4 or x_stft.shape[1] != 2:
             raise ValueError(f"Expected x_stft (N,2,F,T) [log_mag, d_phi], got {tuple(x_stft.shape)}")
@@ -446,18 +551,101 @@ class OsrSAF_TriNet(nn.Module):
         fp, logits, _ = self._backbone_outputs(x_stft, x_iq, x_if, want_supcon=False)
 
         code = F.normalize(fp, p=2, dim=1)
-        pred_class = logits.argmax(dim=1)
-        code_dist = self._codebook.code_distance(code, pred_class)              # cosine dist ∈ [0, 2]
+
+        # ----- Top-2 logits give us pred + runner-up + a "logit margin" -----
+        top2_vals, top2_idx = logits.topk(2, dim=1)                             # (B, 2), (B, 2)
+        pred_class      = top2_idx[:, 0]
+        runner_up_class = top2_idx[:, 1]
+        logit_margin    = top2_vals[:, 0] - top2_vals[:, 1]                     # (B,)
+        # Squash logit margin to roughly [0, 1] via tanh; well-separated knowns
+        # land near 1, ambiguous samples near 0.
+        logit_margin_squashed = torch.tanh(logit_margin / 5.0).clamp(0.0, 1.0)
+
+        # ----- Cosine distances: predicted class + runner-up class -----
+        # Computing per-class min over the codebook is cheap (10 classes * 4 centroids).
+        all_dists = self._codebook.code_distance_all_classes(code)              # (B, C)
+        b_idx = torch.arange(all_dists.size(0), device=all_dists.device)
+        code_dist        = all_dists[b_idx, pred_class]                         # (B,)
+        runner_up_dist   = all_dists[b_idx, runner_up_class]                    # (B,)
+        margin_codebook  = (runner_up_dist - code_dist).clamp(min=0.0)          # (B,)
+
+        # ----- Softmax confidence -----
+        max_prob = logits.softmax(dim=1).max(dim=1).values                      # (B,)
+        unc      = 1.0 - max_prob                                               # (B,)
+
+        # ----- Embedding norm (kept as-is; weak but harmless feature) -----
+        emb_norm = fp.norm(dim=1)
+        emb_norm_normalised = (emb_norm / (emb_norm.detach().mean() + 1e-6)).clamp(0, 3) / 3.0
+
+        calib_input = torch.stack(
+            [
+                code_dist,                # 1. distance to predicted class
+                unc,                      # 2. 1 - max_prob
+                emb_norm_normalised,      # 3. embedding magnitude (weak)
+                runner_up_dist,           # 4. distance to runner-up class  (NEW)
+                margin_codebook,          # 5. codebook margin              (NEW)
+                logit_margin_squashed,    # 6. logit margin (squashed)      (NEW)
+            ],
+            dim=1,
+        )                                                                       # (B, 6)
+
+        unknown_logit = self.score_calibrator(calib_input).squeeze(1)           # (B,)
+        unknown_score = torch.sigmoid(unknown_logit)                            # (B,)  ∈ [0, 1]
+
+        # Stash the logit on the tensor's underlying object via an attribute
+        # WOULD break autograd; instead, callers that need the logit should
+        # use forward_with_osr_logits() below.
+        return logits, unknown_score, None
+
+    def forward_with_osr_logits(
+            self,
+            x_stft: torch.Tensor,
+            x_iq: torch.Tensor,
+            x_if: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Same as forward_with_osr, but ALSO returns the pre-sigmoid logit so
+        the loss can use BCEWithLogitsLoss for numerical stability.
+        Returns (logits, unknown_score, unknown_logit).
+        """
+        if x_stft.ndim != 4 or x_stft.shape[1] != 2:
+            raise ValueError(f"Expected x_stft (N,2,F,T) [log_mag, d_phi], got {tuple(x_stft.shape)}")
+        if x_iq.ndim != 3 or x_iq.shape[1] != 3:
+            raise ValueError(f"Expected x_iq (N,3,L) [real, imag, abs], got {tuple(x_iq.shape)}")
+        if x_if.ndim != 3 or x_if.shape[1] != 1:
+            raise ValueError(f"Expected x_if (N,1,L), got {tuple(x_if.shape)}")
+
+        fp, logits, _ = self._backbone_outputs(x_stft, x_iq, x_if, want_supcon=False)
+        code = F.normalize(fp, p=2, dim=1)
+
+        top2_vals, top2_idx = logits.topk(2, dim=1)
+        pred_class      = top2_idx[:, 0]
+        runner_up_class = top2_idx[:, 1]
+        logit_margin    = top2_vals[:, 0] - top2_vals[:, 1]
+        logit_margin_squashed = torch.tanh(logit_margin / 5.0).clamp(0.0, 1.0)
+
+        all_dists = self._codebook.code_distance_all_classes(code)
+        b_idx = torch.arange(all_dists.size(0), device=all_dists.device)
+        code_dist       = all_dists[b_idx, pred_class]
+        runner_up_dist  = all_dists[b_idx, runner_up_class]
+        margin_codebook = (runner_up_dist - code_dist).clamp(min=0.0)
 
         max_prob = logits.softmax(dim=1).max(dim=1).values
+        unc      = 1.0 - max_prob
 
         emb_norm = fp.norm(dim=1)
         emb_norm_normalised = (emb_norm / (emb_norm.detach().mean() + 1e-6)).clamp(0, 3) / 3.0
 
-        calib_input = torch.stack([code_dist, 1.0 - max_prob, emb_norm_normalised], dim=1)
-        unknown_score = self.score_calibrator(calib_input).squeeze(1)
+        calib_input = torch.stack(
+            [code_dist, unc, emb_norm_normalised,
+             runner_up_dist, margin_codebook, logit_margin_squashed],
+            dim=1,
+        )
 
-        return logits, unknown_score, None
+        unknown_logit = self.score_calibrator(calib_input).squeeze(1)
+        unknown_score = torch.sigmoid(unknown_logit)
+
+        return logits, unknown_score, unknown_logit
 
     def forward(
             self,

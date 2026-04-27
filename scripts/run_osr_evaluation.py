@@ -18,14 +18,14 @@ def find_project_root() -> Path:
 def main():
     project_root = find_project_root()
 
-    ckpt_seeds        = [321]
-    ckpt_n_per_class  = [1000]
+    ckpt_seeds        = [55]
+    ckpt_n_per_class  = [2500]
 
-    eval_seeds        = [32, 54, 76]
-    eval_n_per_class  = [500]
+    eval_seeds        = [400, 102, 276, 312, 154, 346, 145, 265]
+    eval_n_per_class  = [600]
     eval_spec_version = "v2"
 
-    batch_size = 64
+    batch_size = 32
 
     all_results = []
 
