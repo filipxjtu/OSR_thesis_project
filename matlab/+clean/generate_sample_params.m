@@ -769,3 +769,21 @@ function params = generate_sample_params(class_id, sample_idx, spec)
     % Restore RNG State so as not to affect the rest of the workspace.
     rng(old_state);
 end 
+
+
+function victim_idx = derive_victim_idx(jammer_idx, jammer_class_id)
+    % Deterministic permutation of sample_idx, salted by jammer class.
+    % Output stays in [0, sample_idx_max) range.
+    SAMPLE_IDX_MAX = int32(1e6 - 1);
+    
+    j  = double(jammer_idx);
+    c  = double(jammer_class_id);
+    salt_v = uint32(2654435761);                       % Knuth multiplicative hash
+    mixed  = mod(uint64(j) * uint64(salt_v) + uint64(c) * uint64(40503), 2^32);
+    victim_idx = int32(mod(mixed, uint64(SAMPLE_IDX_MAX)));
+    
+    % Guarantee non-equality — extremely unlikely but defend the contract
+    if victim_idx == jammer_idx
+        victim_idx = mod(victim_idx + int32(7), SAMPLE_IDX_MAX);
+    end
+end

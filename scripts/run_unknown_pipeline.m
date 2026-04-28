@@ -1,4 +1,4 @@
-function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
+function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed, xxx)
     % RUN_UNKNOWN_PIPELINE
     % specifically targets the OSR Unknown
     % classes (10-13) by temporarily overriding the spec.class_ids.
@@ -7,7 +7,7 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
         spec (1,1) struct
         n_per_class (1,1) double {mustBeInteger, mustBePositive}
         dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
-        %x (1,1) {mustBeInteger}
+        xxx (1,1) {mustBeInteger}
     end
     
     project_root = fileparts(fileparts(mfilename('fullpath')));
@@ -27,12 +27,12 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
     version = spec_local.spec_version;
     
     % --- OPTIONAL: override SNR here when needed ---
-    spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [-15 15];
-    spec_local.snr_eval_db  = [-10 10];
+    %spec_local.snr_mode = "range";
+    %spec_local.snr_train_db = [-15 15];
+    %spec_local.snr_eval_db  = [-10 10];
         % OR
-    %spec_local.snr_mode = "fixed";
-    %spec_local.snr_fixed_db = 0;
+    spec_local.snr_mode = "fixed";
+    spec_local.snr_fixed_db = xxx;
 
     spec_local.snr_beta = 1;
     spec_local.snr_alpha = 1;
@@ -43,8 +43,8 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
     if ~exist(output_dir,'dir'); mkdir(output_dir); end
     
     fprintf('=== UNKNOWN PIPELINE START ===\n');
-    fprintf('Seed: %d | n_per_class: %d | SNR Mode: %s\n', ...
-            dataset_seed, n_per_class, spec_local.snr_mode);
+    fprintf('Seed: %d | n_per_class: %d | SNR: %d\n', ...
+            dataset_seed, n_per_class, spec_local.snr_fixed_db);
             
     % Generate Clean Unknowns
     dataset = clean.generate_clean_dataset(n_per_class, spec_local);

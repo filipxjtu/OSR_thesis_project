@@ -21,11 +21,13 @@ function x_clean = synthesize_clean_signal_class8(params, spec)
 
 
     % generate target waveform using existing class logic
+    victim_sample_idx = clean.derive_victim_idx(params.sample_index, params.class_id);
+
     if strcmp(target_type, "lfm")
-        target_params = clean.generate_sample_params(2, params.sample_index, spec);
+        target_params = clean.generate_sample_params(2, victim_sample_idx, spec);
         s_target = clean.synthesize_clean_signal_class2(target_params, spec);
     elseif strcmp(target_type, "ofdm")
-        target_params = clean.generate_sample_params(6, params.sample_index, spec);
+        target_params = clean.generate_sample_params(6, victim_sample_idx, spec);
         s_target = clean.synthesize_clean_signal_class6(target_params, spec);
     else
         error('ISRJ: invalid target_type.');

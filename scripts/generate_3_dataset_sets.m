@@ -1,22 +1,28 @@
 clear
 clc
 
-s1 = 400;
-s2 = 102;
+s1 = 410;
+s2 = 118;
 s3 = 276;
-s4 = 312;
-s5 = 154;
-s6 = 346;
-s7 = 145;
-s8 = 265;
-n = 600;
+s4 = 314;
+s5 = 152;
+s6 = 340;
+s7 = 142;
+s8 = 264;
+s9 = 336;
+s10 = 608;
+s11 = 530;
+s12 = 472;
+s13 = 214;
+
+n = 500;
 
 addpath('C:\Users\user\Documents\MATLAB\thesis_project\matlab')
 addpath('C:\Users\user\Documents\MATLAB\thesis_project\scripts')
 
 spec = core.get_canonical_spec();
-x = 0;
-for i = 1:8
+x = 10;
+for i = 1:13
     s = sprintf("s%d",i);
     v = eval(s);
     run_impaired_pipeline(spec, n, v, 'train', x);

@@ -8,7 +8,8 @@ function x_clean = synthesize_clean_signal_class11(params, spec)
     N = double(spec.N);
     
     % Generate continuous OFDM base signal
-    target_params = clean.generate_sample_params(6, params.sample_index, spec);
+    victim_sample_idx = clean.derive_victim_idx(params.sample_index, params.class_id);
+    target_params = clean.generate_sample_params(6, victim_sample_idx, spec);
     s_ofdm = clean.synthesize_clean_signal_class6(target_params, spec);
     
     % Retrieve burst constraints

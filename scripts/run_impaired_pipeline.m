@@ -1,11 +1,11 @@
-function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, mode)
+function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, mode, xxx)
 
     arguments
         spec (1,1) struct
         n_per_class (1,1) double {mustBeInteger, mustBePositive}
         dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
         mode (1,1) string
-        %xxx {mustBeInteger}
+        xxx {mustBeInteger}
     end
 
     project_root = fileparts(fileparts(mfilename('fullpath')));
@@ -24,12 +24,12 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
     version = spec_local.spec_version;
 
     % --- OPTIONAL: override SNR here when needed ---
-    spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [-15 15];
-    spec_local.snr_eval_db  = [-10 10];
+    %spec_local.snr_mode = "range";
+    %spec_local.snr_train_db = [-15 15];
+    %spec_local.snr_eval_db  = [-10 10];
     % OR
-    %spec_local.snr_mode = "fixed";
-    %spec_local.snr_fixed_db = xxx;
+    spec_local.snr_mode = "fixed";
+    spec_local.snr_fixed_db = xxx;
     
     if mode == "train"
         spec_local.snr_beta = 1.75;
@@ -45,10 +45,11 @@ function impaired_data = run_impaired_pipeline(spec, n_per_class, dataset_seed, 
 
     output_dir = fullfile('artifacts','datasets','impaired');
     if ~exist(output_dir,'dir'); mkdir(output_dir); end
+    
 
     fprintf('=== IMPAIRED PIPELINE START ===\n');
-    fprintf('Seed: %d | n_per_class: %d | Mode: %s | SNR value: %s\n', ...
-            dataset_seed, n_per_class, mode, spec_local.snr_mode);
+    fprintf('Seed: %d | n_per_class: %d | Mode: %s | SNR: %d\n', ...
+            dataset_seed, n_per_class, mode, spec_local.snr_fixed_db);
 
     % Step 1: clean
     clean_dataset = clean.generate_clean_dataset(n_per_class, spec_local);

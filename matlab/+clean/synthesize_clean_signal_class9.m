@@ -15,7 +15,8 @@ function x_clean = synthesize_clean_signal_class9(params, spec)
     t = (0:N-1)' / fs;
 
     % generate LFM target
-    target_params = clean.generate_sample_params(2, params.sample_index, spec);
+    victim_sample_idx = clean.derive_victim_idx(params.sample_index, params.class_id);
+    target_params = clean.generate_sample_params(2, victim_sample_idx, spec);
     s_target = clean.synthesize_clean_signal_class2(target_params, spec);
 
     % force RMS = 0.5
