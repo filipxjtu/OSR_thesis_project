@@ -56,11 +56,10 @@ function fields = get_active_fields(class_id)
                 "mbn_info.frame_len","mbn_info.hop_len","mbn_info.B",...
                 "mbn_info.delta_f_sweep","mbn_info.f_start"];
 
-        case 11 % I-OFDMJ
-            fields = ["A", ...
-                "iofdm_info.D_b_range", "iofdm_info.G_b_range", "iofdm_info.taper_taps"];
+        case 11 % CPFPKJ
+            fields = ["A", "Rc", "delta_f", "fc", "phi" ];
 
-        case 12  % DSSS
+        case 12  % DSSSJ
             fields = ["A", "beta", "Rc", "fc", "phi"];
 
         case 13  % TFMJ

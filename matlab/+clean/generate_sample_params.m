@@ -503,11 +503,12 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.A = lims.A(1) + diff(lims.A) * rand(1);
 
             % Target selection
-            if rand(1) < 0.5
-                srj_info.target_type = char("lfm");
-            else
-                srj_info.target_type = char("ofdm");
-            end
+            srj_info.target_type = char("lfm");
+            %if rand(1) < 0.5
+                %srj_info.target_type = char("lfm");
+            %else
+                %srj_info.target_type = char("ofdm");
+            %end
 
             % DRFM geometry
             params.K = lims.K_choices(randi(numel(lims.K_choices)));
@@ -654,28 +655,36 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.frame_len     = char("samples");
             params.units.hop_len       = char("samples");
 
-        case 11  % Intermittent OFDM (I-OFDM) / Unknown Class 2
+        case 11  % CP-2FSK (Continuous-Phase Binary FSK) – Unknown Class 2
             % Constraints
             lims.A      = [0.8, 1.2];
-            lims.D_b    = [100, 300];       % Active burst duration (samples)
-            lims.G_b    = [50, 200];        % Gap duration (samples)
-            
-            % Sample amplitude
-            params.A = lims.A(1) + diff(lims.A) * rand(1);
-            
-            % store the constraints for a while loop in the signal
-            iofdm_info.D_b_range = lims.D_b;
-            iofdm_info.G_b_range = lims.G_b;
-            iofdm_info.taper_taps = 5;      % 5-tap moving avg for smoothing
-            
-            params.iofdm_info = iofdm_info;
+            lims.Rc     = [50e3, 200e3];       % symbol rate (samples per second)
+            lims.delta_f  = [100e3, 400e3];      % peak frequency deviation (Hz)
+            lims.fc_range = [0.5e6, 4.5e6];    % allowed carrier range
+            lims.phi_range = [0, 2*pi];
+
+            params.A      = lims.A(1) + diff(lims.A) * rand(1);
+            params.Rc     = lims.Rc(1) + diff(lims.Rc) * rand(1);
+            params.delta_f  = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
+
+            % Bandwidth ≈ 2*(f_dev + Rs) (Carson's rule)
+            B_occ = 2 * (params.delta_f + params.Rc);
+            fc_min_valid = lims.fc_range(1) + B_occ/2;
+            fc_max_valid = lims.fc_range(2) - B_occ/2;
+            if fc_min_valid >= fc_max_valid
+                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
+            else
+                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+            end
+
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+
             params.lims = lims;
-            
-            % Units
-            params.units.A          = char("linear");
-            params.units.D_b_range  = char("samples");
-            params.units.G_b_range  = char("samples");
-            params.units.taper_taps = char("integer");
+            params.units.A     = char("linear");
+            params.units.Rc    = char("Hz");
+            params.units.delta_f = char("Hz");
+            params.units.fc    = char("Hz");
+            params.units.phi   = char("rad");
 
         case 12  % Direct Sequence Spread Spectrum (DSSS) / Unknown Class 3
             % Constraints
@@ -711,36 +720,6 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.fc    = char("Hz");
             params.units.phi   = char("rad");
             
-            % Constraints
-            %lims.A           = [0.8, 1.2];
-            %lims.alpha_range = [5e4, 2e5];     % Range walk-off rate (samples/sec^2)
-            %lims.beta_range  = [1e8, 5e8];     % Velocity walk-off rate (Hz/sec)
-            %lims.q_choices   = [3, 4];         % ADC bits for DRFM emulation
-            %lims.A_ghost_range = [1.2, 2.0];    % Ghost dominates skin
-            
-            % Sample amplitude
-            %params.A = lims.A(1) + diff(lims.A) * rand(1);
-            
-            % Sample walk-off dynamics
-            %rvgpo_info.alpha = lims.alpha_range(1) + diff(lims.alpha_range) * rand(1);
-            %rvgpo_info.beta  = lims.beta_range(1) + diff(lims.beta_range) * rand(1);
-            %rvgpo_info.A_ghost = lims.A_ghost_range(1) + diff(lims.A_ghost_range) * rand(1);
-            
-            % Quantization
-            %rvgpo_info.q = lims.q_choices(randi(numel(lims.q_choices)));
-            %rvgpo_info.L = 2^(rvgpo_info.q - 1) - 1;
-            
-            %params.rvgpo_info = rvgpo_info;
-            %params.lims = lims;
-            
-            % Units
-            %params.units.A     = char("linear");
-            %params.units.alpha = char("samples/s^2");
-            %params.units.beta  = char("Hz/s");
-            %params.units.q     = char("bits");
-            %params.units.L     = char("integer");
-            %params.units.A_ghost = char("ratio");
-
         case 13  % Triangular FM (TFM) / Unknown Class 4
             % Constraints
             lims.A       = [0.8, 1.2];
@@ -770,20 +749,3 @@ function params = generate_sample_params(class_id, sample_idx, spec)
     rng(old_state);
 end 
 
-
-function victim_idx = derive_victim_idx(jammer_idx, jammer_class_id)
-    % Deterministic permutation of sample_idx, salted by jammer class.
-    % Output stays in [0, sample_idx_max) range.
-    SAMPLE_IDX_MAX = int32(1e6 - 1);
-    
-    j  = double(jammer_idx);
-    c  = double(jammer_class_id);
-    salt_v = uint32(2654435761);                       % Knuth multiplicative hash
-    mixed  = mod(uint64(j) * uint64(salt_v) + uint64(c) * uint64(40503), 2^32);
-    victim_idx = int32(mod(mixed, uint64(SAMPLE_IDX_MAX)));
-    
-    % Guarantee non-equality — extremely unlikely but defend the contract
-    if victim_idx == jammer_idx
-        victim_idx = mod(victim_idx + int32(7), SAMPLE_IDX_MAX);
-    end
-end

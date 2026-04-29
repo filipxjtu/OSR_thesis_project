@@ -25,9 +25,9 @@ x = 10;
 for i = 1:13
     s = sprintf("s%d",i);
     v = eval(s);
-    run_impaired_pipeline(spec, n, v, 'train', x);
-    run_impaired_pipeline(spec,n, v, 'eval',x)
-    run_unknown_pipeline(spec, n, v, x)
+    run_impaired_pipeline(spec,n, v, 'eval',x);
+    fprintf('\n');
+    run_unknown_pipeline(spec, n, v, x);
     fprintf('\n');
     x = x-2;
 end

@@ -30,10 +30,10 @@ NUM_CLASSES = 10
 
 def evaluate_closed_set_model(
     model_name: str,
-    # --- checkpoint identity (what was trained) ---
+    # checkpoint identity (what was trained)
     ckpt_seed: int,
     ckpt_n_per_class: int,
-    # --- eval dataset identity (what we test on) ---
+    # eval dataset identity (what to test on)
     eval_seed: int,
     eval_n_per_class: int,
     eval_spec_version: str,
@@ -41,18 +41,6 @@ def evaluate_closed_set_model(
     batch_size: int = 16,
     device_str: str = "auto",
 ) -> dict:
-    """
-    Load a saved checkpoint and evaluate it on a given eval dataset.
-
-    Checkpoint and eval dataset are fully decoupled so you can test a
-    model trained on one configuration (seed, n, SNR range) against
-    eval datasets from a completely different configuration (e.g. fixed
-    SNR, different seed, different n_per_class).
-
-    Checkpoint path  : artifacts/checkpoints/{model_name}_seed{ckpt_seed}_n{ckpt_n_per_class}.pt
-    Eval dataset path: artifacts/datasets/impaired/impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat
-    Log output       : artifacts/logs/evaluation/{model_name}_ckpt{ckpt_seed}n{ckpt_n_per_class}_eval{eval_seed}n{eval_n_per_class}.json
-    """
 
     if model_name not in MODEL_REGISTRY:
         raise ValueError(
@@ -69,9 +57,7 @@ def evaluate_closed_set_model(
     print(f"Device          : {device}")
     print(f"{'=' * 60}")
 
-    # ------------------------------------------------------------------ #
-    # 1. Checkpoint
-    # ------------------------------------------------------------------ #
+    # Checkpoint
     ckpt_path = (
         project_root
         / "artifacts"
@@ -85,18 +71,14 @@ def evaluate_closed_set_model(
             f"Train the model first using train_model_runner.py"
         )
 
-    # ------------------------------------------------------------------ #
-    # 2. Model
-    # ------------------------------------------------------------------ #
+    # Model
     model = MODEL_REGISTRY[model_name](num_classes=NUM_CLASSES).to(device)
     state = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(state, strict=True)
     model.eval()
     print(f"  Loaded checkpoint : {ckpt_path.name}")
 
-    # ------------------------------------------------------------------ #
-    # 3. Eval dataset
-    # ------------------------------------------------------------------ #
+    # Eval dataset
     eval_path = (
         project_root
         / "artifacts"
@@ -116,9 +98,7 @@ def evaluate_closed_set_model(
     loader  = create_eval_loader(dataset, batch_size=batch_size, device=device)
     print(f"  Eval samples      : {len(dataset)}")
 
-    # ------------------------------------------------------------------ #
-    # 4. Inference
-    # ------------------------------------------------------------------ #
+    # Inference
     y_true, y_pred = [], []
 
     with torch.no_grad():
@@ -133,9 +113,7 @@ def evaluate_closed_set_model(
             y_true.extend(y_b.tolist())
             y_pred.extend(preds)
 
-    # ------------------------------------------------------------------ #
-    # 5. Metrics
-    # ------------------------------------------------------------------ #
+    # Metrics
     acc      = accuracy_score(y_true, y_pred)
     bal_acc  = balanced_accuracy_score(y_true, y_pred)
     f1_macro = f1_score(y_true, y_pred, average="macro",    zero_division=0)
@@ -158,9 +136,7 @@ def evaluate_closed_set_model(
     print(f"  Balanced Accuracy : {100 * bal_acc:.2f}%")
     print(f"  F1 (macro)        : {f1_macro:.4f}")
 
-    # ------------------------------------------------------------------ #
-    # 6. Write log
-    # ------------------------------------------------------------------ #
+    # Write log
     result = {
         "created_utc":        datetime.now(timezone.utc).isoformat(),
         "model_name":         model_name,

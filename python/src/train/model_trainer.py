@@ -95,9 +95,9 @@ def train_model(
     model_cls = MODEL_REGISTRY[model_name]
     model = model_cls(num_classes=10).to(device)
 
-    criterion_ce = nn.CrossEntropyLoss(label_smoothing=0.05)
+    criterion_ce = nn.CrossEntropyLoss(label_smoothing=0.1)
     criterion_supcon = SupConLoss(temperature=0.1).to(device)
-    lambda_supcon = 0.2   # tune up toward 0.5 if clusters stay loose
+    lambda_supcon = 0.1   # tune up toward 0.5 if clusters stay loose
 
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams.lr, weight_decay=hparams.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hparams.epochs)

@@ -8,7 +8,7 @@ class OSRHParams:
     # Codebook
     k_centroids: int = 4
     ema_momentum: float = 0.95
-    codebook_beta: float = 1.0
+    codebook_beta: float = 0.9
 
     # Curriculum
     warmup_epochs: int = 30
@@ -30,4 +30,4 @@ class OSRHParams:
     # rejected as unknown. Lower values are stricter (fewer rejections, higher
     # FPR risk on out-of-distribution knowns); higher values are more eager
     # to flag unknown.
-    target_fpr: float = 0.10
+    target_fpr: float = 0.1

@@ -18,22 +18,10 @@ from python.src.dataio import load_artifact
 from python.src.models import OsrSAF_TriNet
 from python.src.preprocessing import build_feature_tensor
 from python.src.utils import create_eval_loader, resolve_device
-from python.src.analysis.osr_diagnostics import plot_osr_eval_feature_embedding
+from python.src.analysis import plot_osr_eval_feature_embedding
 
 
 NUM_CLASSES = 10
-
-# ============================================================================
-# ADD THIS FUNCTION TO: python/src/eval/osr_evaluator.py
-# Also add "evaluate_osr_model_with_tsne" to __all__ in python/src/eval/__init__.py
-#
-# This wraps evaluate_osr_model but keeps the model + loaders alive long
-# enough to run the t-SNE embedding plot before returning.
-# ============================================================================
-
-# Required extra import at the top of osr_evaluator.py (if not already there):
-#   from python.src.analysis import plot_osr_feature_embedding
-
 
 def evaluate_osr_model_with_tsne(
     ckpt_seed: int,
@@ -47,24 +35,10 @@ def evaluate_osr_model_with_tsne(
     device_str: str = "auto",
     snr_label: str | None = None,      # e.g. "+4 dB"  — used in plot title
 ) -> dict:
-    """
-    Identical to evaluate_osr_model, but after computing metrics it also
-    generates a t-SNE embedding plot of the eval split into `fig_dir`.
-
-    Parameters
-    ----------
-    fig_dir    : Where to write  osr_feature_embedding.png  (and the
-                 optional title-annotated variant).
-    snr_label  : Human-readable SNR string appended to the t-SNE title,
-                 e.g. "+4 dB".  Pass None to skip annotation.
-    """
-    from python.src.analysis.osr_diagnostics import plot_osr_feature_embedding
 
     device = resolve_device(device_str)
 
-    # ------------------------------------------------------------------ #
-    # 1.  Paths (mirror osr_evaluator.evaluate_osr_model exactly)
-    # ------------------------------------------------------------------ #
+    # Paths
     ckpt_path = (
         project_root
         / "artifacts"
@@ -90,18 +64,15 @@ def evaluate_osr_model_with_tsne(
     if not eval_unknown_path.exists():
         raise FileNotFoundError(f"Unknown eval dataset not found: {eval_unknown_path}")
 
-    # ------------------------------------------------------------------ #
-    # 2.  Model
-    # ------------------------------------------------------------------ #
+    # Model
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
     state = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(state, strict=True)
     model.eval()
     print(f"  Loaded checkpoint : {ckpt_path.name}")
 
-    # ------------------------------------------------------------------ #
-    # 3.  Datasets / loaders
-    # ------------------------------------------------------------------ #
+
+    # Datasets / loaders
     known_artifact = load_artifact(str(eval_known_path), load_params=False)
     x_stft_k, x_iq_k, x_if_k, y_k = build_feature_tensor(known_artifact)
     known_dataset = torch.utils.data.TensorDataset(x_stft_k, x_iq_k, x_if_k, y_k)
@@ -115,9 +86,7 @@ def evaluate_osr_model_with_tsne(
     unknown_loader  = create_eval_loader(unknown_dataset, batch_size=batch_size, device=device)
     print(f"  Unknown samples   : {len(unknown_dataset)}")
 
-    # ------------------------------------------------------------------ #
-    # 4.  Run the standard metric evaluation (re-use existing logic)
-    # ------------------------------------------------------------------ #
+    # Run the standard metric evaluation (re-use existing logic)
     result = evaluate_osr_model(
         ckpt_seed=ckpt_seed,
         ckpt_n_per_class=ckpt_n_per_class,
@@ -129,9 +98,7 @@ def evaluate_osr_model_with_tsne(
         device_str=device_str,
     )
 
-    # ------------------------------------------------------------------ #
-    # 5.  t-SNE embedding plot
-    # ------------------------------------------------------------------ #
+    # t-SNE embedding plot
     title_suffix = f" — SNR {snr_label}" if snr_label else ""
     fig_dir.mkdir(parents=True, exist_ok=True)
 

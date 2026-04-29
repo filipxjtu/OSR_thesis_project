@@ -75,7 +75,7 @@ class _CosineCodebook(nn.Module):
             code_dim: int,
             k: int = 4,
             ema_momentum: float = 0.95,
-            beta: float = 1.0,
+            beta: float = 0.85,
     ):
         super().__init__()
         self.num_classes = num_classes
@@ -240,7 +240,7 @@ class OsrSAF_TriNet(nn.Module):
             k_centroids: int = 4,
             ema_momentum: float = 0.95,
             warmup_epochs: int = 30,
-            codebook_beta: float = 1.0,
+            codebook_beta: float = 0.9,
             threshold_recal_interval: int = 5,
             # AsymmetricTriNet pass-through
             branch_dim: int = 128,
@@ -386,7 +386,7 @@ class OsrSAF_TriNet(nn.Module):
             self,
             scores: torch.Tensor,
             pred_classes: torch.Tensor,
-            target_fpr: float = 0.10,
+            target_fpr: float = 0.25,
             min_per_class: int = 30,
     ) -> None:
         """

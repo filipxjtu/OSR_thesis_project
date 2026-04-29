@@ -11,19 +11,19 @@ from python.src.analysis import plot_snr_vs_accuracy                      # NEW
 
 # ── seed → fixed SNR (dB) map ───────────────────────────────────────────────
 EVAL_SEED_TO_SNR: dict[int, float] = {
-    410:  10,
-    118:   8,
-    276:   6,
-    314:   4,
-    152:   2,
+    #410:  10,
+    #118:   8,
+    #276:   6,
+    #314:   4,
+    #152:   2,
     340:   0,
-    142:  -2,
-    264:  -4,
-    336:  -6,
-    608:  -8,
-    530: -10,
-    472: -12,
-    214: -14,
+    #142:  -2,
+    #264:  -4
+    #336:  -6,
+    #608:  -8,
+    #530: -10,
+    #472: -12,
+    #214: -14,
 }
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ def find_project_root() -> Path:
 def main():
     project_root = find_project_root()
 
-    ckpt_seeds        = [38]
+    ckpt_seeds        = [55]
     ckpt_n_per_class  = [2500]
 
     eval_seeds        = list(EVAL_SEED_TO_SNR.keys())
