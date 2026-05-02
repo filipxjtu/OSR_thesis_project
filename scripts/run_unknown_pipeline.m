@@ -28,11 +28,11 @@ function unknown_data = run_unknown_pipeline(spec, n_per_class, dataset_seed)
     
     % --- OPTIONAL: override SNR here when needed ---
     spec_local.snr_mode = "range";
-    spec_local.snr_train_db = [5 15];
-    spec_local.snr_eval_db  = [5 10];
+    spec_local.snr_train_db = [-15 15];
+    spec_local.snr_eval_db  = [-10 10];
         % OR
     %spec_local.snr_mode = "fixed";
-    %spec_local.snr_fixed_db = xxx;
+    %spec_local.snr_fixed_db = -4;
 
     spec_local.snr_beta = 1;
     spec_local.snr_alpha = 1;

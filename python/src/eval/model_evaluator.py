@@ -16,6 +16,9 @@ from sklearn.metrics import (
 
 from python.src.dataio import load_artifact
 from python.src.models import AsymmetricTriNet, SimpleCNN
+from python.src.legacy_models import (LiteratureBaseline_ResNet18,
+                                      LiteratureBaseline_DenseNet121,
+                                      LiteratureBaseline_VGG16)
 from python.src.preprocessing import build_feature_tensor
 from python.src.utils import create_eval_loader, resolve_device, FeatureTensorDataset
 
@@ -23,6 +26,9 @@ from python.src.utils import create_eval_loader, resolve_device, FeatureTensorDa
 MODEL_REGISTRY: dict[str, type[nn.Module]] = {
     "asymmetric_trinet": AsymmetricTriNet,
     "simple_cnn": SimpleCNN,
+    "vgg_16": LiteratureBaseline_VGG16,
+    "densenet121": LiteratureBaseline_DenseNet121,
+    "resnet18": LiteratureBaseline_ResNet18,
 }
 
 NUM_CLASSES = 10
@@ -79,10 +85,9 @@ def evaluate_closed_set_model(
     print(f"  Loaded checkpoint : {ckpt_path.name}")
 
     # Eval dataset
+    eval_dataset_path = Path("C:/Users/user/Documents/MATLAB/eval_datasets")
     eval_path = (
-        project_root
-        / "artifacts"
-        / "datasets"
+        eval_dataset_path
         / "impaired"
         / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
     )

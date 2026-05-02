@@ -12,8 +12,8 @@ def build_feature_tensor(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Convert dataset to model-ready tri-tensors.
-    STFT Output:  x_stft: (Ns, 1, F, T)
-    IQ Output:    x_iq: (Ns, 2, N)
+    STFT Output:  x_stft: (Ns, 2, F, T)
+    IQ Output:    x_iq: (Ns, 3, N)
     IF Output:    x_if: (Ns, 1, N)
     Labels:       y: (Ns,)
     """

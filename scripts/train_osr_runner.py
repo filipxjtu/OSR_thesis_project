@@ -17,7 +17,7 @@ def find_project_root() -> Path:
 def main():
     project_root = find_project_root()
 
-    seeds = [216]
+    seeds = [55]
     n_per_class_list = [2500]
     spec_version = "v2"
     epochs = 50

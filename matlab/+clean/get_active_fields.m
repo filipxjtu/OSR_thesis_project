@@ -65,6 +65,23 @@ function fields = get_active_fields(class_id)
         case 13  % TFMJ
             fields = ["A", "delta_f", "fm"];
 
+        case 14  % CWJ
+            fields = ["A", "fc", "phi"];
+
+        case 15  % SWPJ
+            fields = ["A", "delta_f", "T", "f0", "phi"];
+
+        case 16  % PGNJ
+            fields = ["A", ...
+                "pgn_info.PRF", "pgn_info.duty_cycle", "pgn_info.rise_samp"];
+
+        case 17  % AMTJ
+            fields = ["A", "fc", "fm", "mod_index", "phi","phi_m1" ];
+
+        case 18  % AMTJ
+            fields = ["A", "phi","alpha" , "fc", ...
+                "bpsk_info.SPS", "bpsk_info.filter_span",];
+
         otherwise
             error("Invalid class_id: %d", class_id);
 

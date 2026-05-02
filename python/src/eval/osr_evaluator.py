@@ -23,6 +23,46 @@ from python.src.analysis import plot_osr_eval_feature_embedding
 
 NUM_CLASSES = 10
 
+
+def _resolve_unknown_eval_path(
+    eval_dataset_root: Path,
+    eval_spec_version: str,
+    eval_seed: int,
+    eval_n_per_class: int,
+) -> Path:
+    """
+    Resolve the unknown evaluation dataset path with backward compatibility.
+
+    Preferred (new convention): unknown_dataset_{ver}_seed{s}_n{n}_test.mat
+    Fallback (legacy):          unknown_dataset_{ver}_seed{s}_n{n}.mat
+
+    The legacy fallback exists so that already-generated eval seeds (e.g.
+    seeds 118, 340, 410) keep working without regeneration. New eval seeds
+    should use the _test.mat convention.
+    """
+    new_path = (
+        eval_dataset_root
+        / "unknown"
+        / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_test.mat"
+    )
+    if new_path.exists():
+        return new_path
+
+    legacy_path = (
+        eval_dataset_root
+        / "unknown"
+        / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}.mat"
+    )
+    if legacy_path.exists():
+        print(f"  [warn] Falling back to legacy unknown filename: {legacy_path.name}")
+        return legacy_path
+
+    raise FileNotFoundError(
+        f"Unknown eval dataset not found at either:\n"
+        f"  {new_path}\n  {legacy_path}"
+    )
+
+
 def evaluate_osr_model_with_tsne(
     ckpt_seed: int,
     ckpt_n_per_class: int,
@@ -51,18 +91,14 @@ def evaluate_osr_model_with_tsne(
         / "impaired"
         / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
     )
-    eval_unknown_path = (
-        eval_dataset_root
-        / "unknown"
-        / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}.mat"
+    eval_unknown_path = _resolve_unknown_eval_path(
+        eval_dataset_root, eval_spec_version, eval_seed, eval_n_per_class
     )
 
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
     if not eval_known_path.exists():
         raise FileNotFoundError(f"Known eval dataset not found: {eval_known_path}")
-    if not eval_unknown_path.exists():
-        raise FileNotFoundError(f"Unknown eval dataset not found: {eval_unknown_path}")
 
     # Model
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
@@ -70,7 +106,6 @@ def evaluate_osr_model_with_tsne(
     model.load_state_dict(state, strict=True)
     model.eval()
     print(f"  Loaded checkpoint : {ckpt_path.name}")
-
 
     # Datasets / loaders
     known_artifact = load_artifact(str(eval_known_path), load_params=False)
@@ -110,7 +145,7 @@ def evaluate_osr_model_with_tsne(
         device=device,
         out_dir=fig_dir,
         n_classes=NUM_CLASSES,
-        title_suffix=title_suffix,      # see note below
+        title_suffix=title_suffix,
     )
 
     return result
@@ -147,21 +182,18 @@ def evaluate_osr_model(
             f"OSR checkpoint not found: {ckpt_path}\n"
             f"Run train_osr_runner first."
         )
+
     eval_dataset_root = Path(f"C:/Users/user/Documents/MATLAB/eval_datasets")
     eval_known_path = (
         eval_dataset_root
         / "impaired"
         / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
     )
-    eval_unknown_path = (
-        eval_dataset_root
-        / "unknown"
-        / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}.mat"
+    eval_unknown_path = _resolve_unknown_eval_path(
+        eval_dataset_root, eval_spec_version, eval_seed, eval_n_per_class
     )
     if not eval_known_path.exists():
         raise FileNotFoundError(f"Known eval dataset not found: {eval_known_path}")
-    if not eval_unknown_path.exists():
-        raise FileNotFoundError(f"Unknown eval dataset not found: {eval_unknown_path}")
 
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
     state = torch.load(ckpt_path, map_location=device)
@@ -234,98 +266,99 @@ def evaluate_osr_model(
         float(balanced_accuracy_score(labels_arr[known_mask], preds_arr[known_mask]))
         if known_count > 0 else 0.0
     )
-    known_f1_macro = (
-        float(f1_score(labels_arr[known_mask], preds_arr[known_mask], average="macro", zero_division=0))
+    known_f1 = (
+        float(f1_score(labels_arr[known_mask], preds_arr[known_mask], average="macro"))
         if known_count > 0 else 0.0
     )
 
-    unknown_recall   = float(np.mean(rejected[unknown_mask])) if unknown_count > 0 else 0.0
-    false_alarm_rate = float(np.mean(rejected[known_mask]))   if known_count > 0 else 0.0
+    unknown_recall = float(np.mean(rejected[unknown_mask])) if unknown_count > 0 else 0.0
+    false_alarm    = float(np.mean(rejected[known_mask]))   if known_count   > 0 else 0.0
 
-    total_rejected = int(rejected.sum())
-    detection_precision = (
-        float(np.sum(rejected & unknown_mask) / total_rejected) if total_rejected > 0 else 0.0
-    )
-    eps = 1e-8
-    f1_unknown = (
-        2 * unknown_recall * detection_precision
-        / (unknown_recall + detection_precision + eps)
-    )
+    # Treat correct unknown rejection as "class -1 predicted = label -1"
+    final_labels = labels_arr.copy()
+    pred_labels  = final_arr.copy()
+    open_set_acc = float(np.mean(final_labels == pred_labels))
 
-    open_correct = (
-        int(np.sum((final_arr == labels_arr) & known_mask))
-        + int(np.sum((final_arr == -1) & unknown_mask))
-    )
-    open_set_acc = float(open_correct / max(1, len(labels_arr)))
-
-    cm_size = NUM_CLASSES + 1
-    labels_mapped = np.where(labels_arr == -1, NUM_CLASSES, labels_arr)
-    final_mapped  = np.where(final_arr == -1,  NUM_CLASSES, final_arr)
-    cm = confusion_matrix(labels_mapped, final_mapped, labels=list(range(cm_size))).tolist()
-
-    per_class_acc = {}
-    for c in range(cm_size):
-        idx = (labels_mapped == c)
-        if int(np.sum(idx)) == 0:
-            per_class_acc[f"class_{c}" if c < NUM_CLASSES else "unknown"] = 0.0
-        else:
-            per_class_acc[f"class_{c}" if c < NUM_CLASSES else "unknown"] = float(
-                np.mean(final_mapped[idx] == labels_mapped[idx])
+    if unknown_count > 0 and known_count > 0:
+        # F1 for the unknown class as a binary problem (rejected vs. accepted)
+        f1_unk = float(
+            f1_score(
+                (labels_arr == -1).astype(int),
+                rejected.astype(int),
+                average="binary",
             )
+        )
+    else:
+        f1_unk = 0.0
 
-    print(f"\n  Known accuracy    : {known_acc:.4f}")
-    print(f"  Known bal. acc.   : {known_bal_acc:.4f}")
-    print(f"  AUROC             : {auroc:.4f}")
-    print(f"  Unknown recall    : {unknown_recall:.4f}")
-    print(f"  False alarm rate  : {false_alarm_rate:.4f}")
-    print(f"  F1 (unknown)      : {f1_unknown:.4f}")
-    print(f"  Open-set accuracy : {open_set_acc:.4f}")
+    # Confusion matrix incl. unknown row/column
+    cm_labels = list(range(NUM_CLASSES)) + [-1]
+    final_for_cm = final_arr.copy()
+    label_for_cm = labels_arr.copy()
+    cm = confusion_matrix(label_for_cm, final_for_cm, labels=cm_labels).tolist()
+
+    per_class_acc: dict[str, float] = {}
+    for c in range(NUM_CLASSES):
+        idx = labels_arr == c
+        if idx.sum() == 0:
+            per_class_acc[f"class_{c}"] = 0.0
+        else:
+            # accept only if predicted class c AND not rejected
+            correct = (final_arr[idx] == c).sum()
+            per_class_acc[f"class_{c}"] = float(correct / idx.sum())
+    if unknown_count > 0:
+        per_class_acc["unknown"] = unknown_recall
+
+    print(f"\n{'=' * 52}")
+    print(f"FINAL EVAL RESULTS")
+    print(f"Known accuracy   : {known_acc:.4f}")
+    print(f"Open-set accuracy: {open_set_acc:.4f}")
+    print(f"AUROC            : {auroc:.4f}")
+    print(f"Unknown recall   : {unknown_recall:.4f}")
+    print(f"False alarm rate : {false_alarm:.4f}")
+    print(f"{'=' * 52}\n")
 
     result = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "model_name":  "osr_saf_trinet",
+        "model_name": "osr_saf_trinet",
         "checkpoint": {
-            "seed":        ckpt_seed,
+            "seed": ckpt_seed,
             "n_per_class": ckpt_n_per_class,
-            "path":        str(ckpt_path),
+            "path": str(ckpt_path),
         },
         "eval_dataset": {
-            "seed":         eval_seed,
-            "n_per_class":  eval_n_per_class,
+            "seed": eval_seed,
+            "n_per_class": eval_n_per_class,
             "spec_version": eval_spec_version,
-            "known_path":   str(eval_known_path),
+            "known_path": str(eval_known_path),
             "unknown_path": str(eval_unknown_path),
-            "n_known":      known_count,
-            "n_unknown":    unknown_count,
+            "n_known": int(known_count),
+            "n_unknown": int(unknown_count),
         },
         "device": str(device),
         "metrics": {
-            "known_accuracy":          round(known_acc, 6),
-            "known_balanced_accuracy": round(known_bal_acc, 6),
-            "known_f1_macro":          round(known_f1_macro, 6),
-            "auroc":                   round(auroc, 6),
-            "unknown_recall":          round(unknown_recall, 6),
-            "false_alarm_rate":        round(false_alarm_rate, 6),
-            "f1_unknown":              round(f1_unknown, 6),
-            "open_set_accuracy":       round(open_set_acc, 6),
+            "known_accuracy":         known_acc,
+            "known_balanced_accuracy": known_bal_acc,
+            "known_f1_macro":          known_f1,
+            "auroc":                   auroc,
+            "unknown_recall":          unknown_recall,
+            "false_alarm_rate":        false_alarm,
+            "f1_unknown":              f1_unk,
+            "open_set_accuracy":       open_set_acc,
             "per_class_accuracy":      per_class_acc,
             "confusion_matrix":        cm,
         },
     }
 
-    log_dir = project_root / "artifacts" / "logs" / "osr_evaluation"
+    log_dir = project_root / "artifacts" / "logs" / "osr_evaluations"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_name = (
-        f"osr_saf_trinet"
-        f"_ckpt{ckpt_seed}n{ckpt_n_per_class}"
-        f"_eval{eval_seed}n{eval_n_per_class}"
-        f"_{eval_spec_version}.json"
+    log_path = log_dir / (
+        f"osr_saf_trinet_ckpt{ckpt_seed}n{ckpt_n_per_class}"
+        f"_eval{eval_seed}n{eval_n_per_class}_{eval_spec_version}.json"
     )
-    log_path = log_dir / log_name
-    with log_path.open("w", encoding="utf-8") as f:
+    with open(log_path, "w") as f:
         json.dump(result, f, indent=2)
 
-    print(f"  Log saved         : {log_path}")
-    print(f"{'=' * 60}\n")
+    print(f"  Eval log saved to : {log_path}")
 
     return result

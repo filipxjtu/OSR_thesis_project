@@ -8,14 +8,17 @@ function spec = get_canonical_spec()
 
     % Class set
     spec.class_ids = int32(0:9);   
-    spec.unknown_class_ids = int32(10:13);  
+    spec.unknown_class_ids = int32(10:13);
+    spec.unknown_proxy_class_ids = int32(14:18);
+    spec.unknown_test_class_ids = int32(12:13);
 
     % SNR control
     spec.snr_mode = "range";           % "range" | "fixed"
-    spec.snr_train_db = [-10 5];
-    spec.snr_eval_db  = [-5 10];
+    spec.snr_train_db = [-15 15];
+    spec.snr_eval_db  = [-10 10];
     spec.snr_fixed_db = -6;
-    spec.snr_skew_gamma = 1;
+    spec.snr_alpha = 1;
+    spec.snr_beta = 1;
 
     % Residual oscillator effects
     spec.enable_cfo = true;

@@ -16,9 +16,9 @@ EVAL_SEED_TO_SNR: dict[int, float] = {
     #276:   6,
     #314:   4,
     #152:   2,
-    340:   0,
+    #340:   0,
     #142:  -2,
-    #264:  -4
+    264:  -4
     #336:  -6,
     #608:  -8,
     #530: -10,
@@ -143,7 +143,7 @@ def main():
         )
 
     print(f"{'=' * 95}\n")
-
+"""
     # ── SNR vs Accuracy plot ─────────────────────────────────────────────── #
     for ckpt_seed in ckpt_seeds:
         for ckpt_n in ckpt_n_per_class:
@@ -166,6 +166,7 @@ def main():
                 ckpt_tag    = ckpt_tag,
             )
 
+"""
 
 if __name__ == "__main__":
     main()

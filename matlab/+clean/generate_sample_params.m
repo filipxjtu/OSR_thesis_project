@@ -738,6 +738,138 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.delta_f = char("Hz");
             params.units.fm      = char("Hz");
 
+        case 14  % Continuous-Wave Jamming (CWJ) – Unknown Class 5 (FANET DoS)
+            % Constraints
+            lims.A         = [0.8, 1.2];
+            lims.fc_range  = [0.5e6, 4.5e6];   % allowed carrier range
+            lims.phi_range = [0, 2*pi];
+ 
+            params.A   = lims.A(1) + diff(lims.A) * rand(1);
+            params.fc  = lims.fc_range(1) + diff(lims.fc_range) * rand(1);
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+ 
+            params.lims = lims;
+ 
+            params.units.A   = char("linear");
+            params.units.fc  = char("Hz");
+            params.units.phi = char("rad");
+ 
+        case 15  % Slow Sweep Jamming (SWPJ) – Unknown Class 6 (FANET anti-FH)
+            % Constraints
+            lims.A             = [0.8, 1.2];
+            lims.delta_f_sweep = [0.5e6, 2.0e6];    % sweep excursion (Hz)
+            lims.T_sweep       = [200e-6, 1000e-6]; % slow sweep period (s)
+            lims.fc_range      = [0.5e6, 4.5e6];    % allowed carrier range
+            lims.phi_range     = [0, 2*pi];
+ 
+            params.A             = lims.A(1) + diff(lims.A) * rand(1);
+            params.delta_f = lims.delta_f_sweep(1) + diff(lims.delta_f_sweep) * rand(1);
+            params.T       = lims.T_sweep(1) + diff(lims.T_sweep) * rand(1);
+ 
+            % Choose f_start so the swept band stays inside Nyquist
+            f_min_valid = lims.fc_range(1);
+            f_max_valid = lims.fc_range(2) - params.delta_f;
+            if f_min_valid >= f_max_valid
+                params.f0 = lims.fc_range(1);
+            else
+                params.f0 = f_min_valid + (f_max_valid - f_min_valid) * rand(1);
+            end
+ 
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+ 
+            params.lims = lims;
+ 
+            params.units.A        = char("linear");
+            params.units.delta_f = char("Hz");
+            params.units.T       = char("s");
+            params.units.f0       = char("Hz");
+            params.units.phi      = char("rad");
+ 
+        case 16  % Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class 7 (burst jammer)
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.PRF        = [5e3, 50e3];     % pulse repetition frequency (Hz)
+            lims.duty_cycle = [0.10, 0.40];    % low duty (distinct from PBNJ)
+            lims.rise_samp  = [4, 16];         % envelope rise/fall length (samples)
+ 
+            params.A          = lims.A(1) + diff(lims.A) * rand(1);
+            pgn_info.PRF        = lims.PRF(1) + diff(lims.PRF) * rand(1);
+            pgn_info.duty_cycle = lims.duty_cycle(1) + diff(lims.duty_cycle) * rand(1);
+            pgn_info.rise_samp  = round(lims.rise_samp(1) + diff(lims.rise_samp) * rand(1));
+ 
+            params.lims = lims;
+            params.pgn_info = pgn_info;
+ 
+            params.units.A          = char("linear");
+            params.units.PRF        = char("Hz");
+            params.units.duty_cycle = char("ratio");
+            params.units.rise_samp  = char("samples");
+ 
+        case 17  % AM-Tone Jamming (AMTJ) – Unknown Class 8 (spoofing-flavored)
+            % Constraints
+            lims.A         = [0.8, 1.2];
+            lims.fc_range  = [0.5e6, 4.5e6];   % carrier
+            lims.fm_range  = [10e3, 100e3];    % modulation rate (Hz)
+            lims.mod_index = [0.30, 0.90];     % AM modulation depth
+            lims.phi_range = [0, 2*pi];
+ 
+            params.A         = lims.A(1) + diff(lims.A) * rand(1);
+            params.fc        = lims.fc_range(1) + diff(lims.fc_range) * rand(1);
+            params.fm        = lims.fm_range(1) + diff(lims.fm_range) * rand(1);
+            params.mod_index = lims.mod_index(1) + diff(lims.mod_index) * rand(1);
+            params.phi       = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            params.phi_m1     = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+ 
+            params.lims = lims;
+ 
+            params.units.A         = char("linear");
+            params.units.fc        = char("Hz");
+            params.units.fm        = char("Hz");
+            params.units.mod_index = char("ratio");
+            params.units.phi       = char("rad");
+            params.units.phi_m1     = char("rad");
+            
+ case 18  % BPSK Smart Jammer (SRRC pulse shaped)
+            % Constraints
+            lims.A        = [0.8, 1.2];
+            lims.alpha    = [0.25, 0.35];            % SRRC roll‑off
+            lims.SPS_choices = [4, 5, 8, 10];        % samples per symbol
+            lims.filter_span  = [6, 8];              % filter span in symbols
+            lims.fc_range = [0.5e6, 4.5e6];          % allowed carrier range
+            lims.phi_range = [0, 2*pi];
+
+            % Sample amplitude and carrier
+            params.A = lims.A(1) + diff(lims.A) * rand(1);
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+
+            % SRRC parameters
+            params.alpha = lims.alpha(1) + diff(lims.alpha) * rand(1);
+            bpsk_info.SPS = lims.SPS_choices(randi(numel(lims.SPS_choices)));
+            bpsk_info.filter_span = lims.filter_span(randi(numel(lims.filter_span)));
+
+            % Occupied bandwidth ≈ (1+alpha) * (fs / SPS)
+            B_occ = (1 + params.alpha) * (double(spec.fs) / double(bpsk_info.SPS));
+
+            % Carrier frequency validity
+            fc_min_valid = max(lims.fc_range(1), B_occ/2);
+            fc_max_valid = lims.fc_range(2) - B_occ/2;
+            if fc_min_valid >= fc_max_valid
+                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
+            else
+                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+            end
+
+            params.bpsk_info = bpsk_info;
+            params.lims = lims;
+
+            % Units
+            params.units.A            = char("linear");
+            params.units.alpha        = char("roll-off");
+            params.units.bpsk_info.SPS   = char("samples");
+            params.units.bpsk_info.filter_span = char("symbols");
+            params.units.fc           = char("Hz");
+            params.units.phi          = char("rad");
+            
         otherwise
             error('Invalid class_id: %d. Must be 0-13.', class_id);
     end

@@ -46,7 +46,16 @@ function [x_clean, y, params] = generate_clean_sample(class_id, sample_idx, spec
             x_clean = clean.synthesize_clean_signal_class12(params, spec);
         case 13
             x_clean = clean.synthesize_clean_signal_class13(params, spec);
-       
+        case 14
+            x_clean = clean.synthesize_clean_signal_class14(params, spec);
+        case 15
+            x_clean = clean.synthesize_clean_signal_class15(params, spec);
+        case 16
+            x_clean = clean.synthesize_clean_signal_class16(params, spec);
+        case 17
+            x_clean = clean.synthesize_clean_signal_class17(params, spec);
+        case 18
+            x_clean = clean.synthesize_clean_signal_class18(params, spec);
         otherwise
             error('Invalid class_id: %d. Must be 0-13.', class_id);
     end

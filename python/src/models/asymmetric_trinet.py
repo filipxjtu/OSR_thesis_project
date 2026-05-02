@@ -217,6 +217,16 @@ class FusedDRSN(nn.Module):
     """
     Vector-valued residual cubic-threshold for the fused fingerprint.
     This is where the "sparse activation fingerprint" is born.
+
+    forward(x) returns the residual-refined fingerprint (default behaviour,
+    backward-compatible).
+
+    forward(x, return_mask=True) ALSO returns a binary mask m ∈ {0,1}^dim
+    indicating which channels' pre-thresholding corrections were OUTSIDE the
+    shrinkage band (i.e. "survived" shrinkage). This is the sparse activation
+    code referenced in the OSR sparse-activation-fingerprint contract:
+    knowns of the same class fire the same mask modes; unknowns fire
+    incoherent / unfamiliar mask combinations.
     """
 
     def __init__(self, dim: int, reduction: int = 4, drop_path: float = 0.0):
@@ -234,13 +244,33 @@ class FusedDRSN(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+            self,
+            x: torch.Tensor,
+            return_mask: bool = False,
+    ):
         out = self.transform(x)
         tau = self.fc(out)
         ref = torch.abs(out).mean(dim=1, keepdim=True)
+
+        # Capture the binary survival pattern BEFORE thresholding mutates `out`.
+        # A channel "survives" shrinkage when |out| >= tau * ref — outside the
+        # cubic band. This is the sparse-fingerprint contract: the IDENTITY of
+        # which channels fire is the per-sample signature, independent of how
+        # much they fire.
+        if return_mask:
+            threshold = tau * ref.detach()
+            mask = (torch.abs(out) >= threshold).to(out.dtype)                  # (B, dim) ∈ {0,1}
+        else:
+            mask = None
+
         out = _cubic_threshold(out, tau, ref)
         out = stochastic_drop_path(out, self.drop_path, self.training)
-        return x + out
+        refined = x + out
+
+        if return_mask:
+            return refined, mask
+        return refined
 
 
 # =============================================================================
@@ -452,7 +482,7 @@ class AsymmetricTriNet(nn.Module):
             num_classes: int = 10,
             branch_dim: int = 128,
             fingerprint_dim: int = 256,
-            modality_dropout: float = 0.25,
+            modality_dropout: float = 0.3,
             num_transformer_layers: int = 1,
             nhead: int = 4,
             use_cls_token: bool = True,
@@ -624,7 +654,13 @@ class AsymmetricTriNet(nn.Module):
     # -------------------------------------------------------------
     # Fusion
     # -------------------------------------------------------------
-    def _fuse(self, f1: torch.Tensor, f2: torch.Tensor, f3: torch.Tensor) -> torch.Tensor:
+    def _fuse(
+            self,
+            f1: torch.Tensor,
+            f2: torch.Tensor,
+            f3: torch.Tensor,
+            return_mask: bool = False,
+    ):
         # Reliability gate operates on the RAW branch outputs so it can read
         # both magnitude (which BN-then-ReLU outputs carry as a noise/quality
         # signal) and direction. If we L2-normalised first, the gate would be
@@ -650,6 +686,11 @@ class AsymmetricTriNet(nn.Module):
             fused = torch.flatten(self.transformer_fusion(tokens), 1)
 
         fp = self.fingerprint_proj(fused)
+
+        if return_mask:
+            fp, mask = self.drsn_refiner(fp, return_mask=True)
+            return fp, mask
+
         fp = self.drsn_refiner(fp)
         return fp
 
