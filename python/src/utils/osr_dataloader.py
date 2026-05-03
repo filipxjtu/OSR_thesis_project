@@ -36,9 +36,9 @@ def load_osr_datasets(project_root: Path, seed: int, n_per_class: int, spec_vers
 
     train_file     = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_train.mat"
     eval_file      = dataset_dir / "impaired" / f"impaired_dataset_{spec_version}_seed{seed}_n{n_per_class}_eval.mat"
-    unk_proxy_file = dataset_dir / "unknown"  / f"unknown_dataset_{spec_version}_seed{seed}_n1000_proxy.mat"
-    unk_test_file  = dataset_dir / "unknown"  / f"unknown_dataset_{spec_version}_seed{seed}_n750_test.mat"
-    print(f"Loading  {unk_proxy_file}")
+    unk_proxy_file = dataset_dir / "unknown"  / f"unknown_dataset_{spec_version}_seed{seed}_n2000_proxy.mat"
+    unk_test_file  = dataset_dir / "unknown"  / f"unknown_dataset_{spec_version}_seed{seed}_n2000_test.mat"
+
     for path, role in (
         (train_file,     "impaired train"),
         (eval_file,      "impaired eval"),

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 
 from ..utils import (
     create_train_loader,
@@ -16,21 +15,18 @@ from ..utils import (
     prepare_unique_file,
 )
 from ..models import OsrSAF_TriNet
-from ..analysis import generate_osr_confusion_outputs, plot_osr_feature_embedding
+from ..analysis import generate_osr_confusion_outputs, plot_osr_eval_feature_embedding
 
 from .osr_engine import (
     populate_codebook_epoch,
     train_phase2_epoch,
     evaluate_osr,
     collect_validation_scores,
-)
+ )
 from .osr_hparams import OSRHParams
 
 
-# Bumped from 3 → 5. With ~20k known samples and EMA momentum ramping from
-# 0.85 toward 0.95, three epochs is on the edge of "barely converged"; five
-# leaves comfortable margin without meaningfully extending wall time.
-CODEBOOK_FILL_EPOCHS = 5
+CODEBOOK_FILL_EPOCHS = 15
 
 
 def train_osr_model(
@@ -39,19 +35,20 @@ def train_osr_model(
     n_per_class: int,
     spec_version: str,
     project_root: Path,
-    epochs: int = 50,
+    epochs: int | None = None,
     hparams: OSRHParams | None = None,
 ):
     if hparams is None:
         hparams = OSRHParams()
 
+    if epochs is None:
+        epochs = hparams.phase2_epochs
+
     report_dir = project_root / "reports" / "validations"
     validation_report = report_dir / f"validation_seed{seed}_n{n_per_class}_{spec_version}.json"
 
     if not validation_report.exists():
-        raise RuntimeError(
-            "Validation reports missing. Run run_validation.py first."
-        )
+        raise RuntimeError("Validation reports missing. Run run_validation.py first.")
 
     pretrained_path = (
         project_root
@@ -73,8 +70,11 @@ def train_osr_model(
     print(f"Device              : {device}")
     print(f"Closed-set ckpt     : {pretrained_path.name}")
     print(f"Codebook fill epochs: {CODEBOOK_FILL_EPOCHS}")
-    print(f"Phase 2 (calibrator): until epoch {epochs}")
+    print(f"Phase 2 (calibrator): up to {epochs}")
     print(f"Target FPR          : {hparams.target_fpr:.2f}")
+    print(f"Calibrator wd       : {hparams.calibrator_weight_decay}")
+    print(f"Recal interval      : {hparams.threshold_recal_interval}")
+    print(f"Early stop patience : {hparams.early_stopping_patience}")
     print(f"{'=' * 60}\n")
 
     datasets = load_osr_datasets(project_root, seed, n_per_class, spec_version)
@@ -107,33 +107,42 @@ def train_osr_model(
         pct = float(cb_stats["pct_initialised"]) * 100
         spread = float(cb_stats["spread_per_class"].mean())
         updates = float(cb_stats["mean_updates_per_centroid"])
-        print(f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}")
+        print(
+            f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | "
+            f"init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}"
+        )
 
     model.phase2_active = True
-    # Initial threshold via the formula fallback — replaced after epoch 1 of
-    # Phase 2 by the percentile-from-validation-scores method.
     model.calibrate_class_thresholds_formula()
 
     opt_calibrator = torch.optim.Adam(
         model.score_calibrator.parameters(),
         lr=hparams.lr_calibrator,
-        weight_decay=1e-5,
+        weight_decay=hparams.calibrator_weight_decay,
     )
     sched_calibrator = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt_calibrator, T_max=epochs
     )
 
     training_log: list[dict] = []
-    best_auroc  = 0.0
-    best_state  = None
+    best_score = -float("inf")
+    best_state = None
+    epochs_since_improvement = 0
     phase2_epoch_count = 0
+
+    #class_weights = compute_proxy_routing_weights(  # NEW
+        #model, train_loader, device, num_classes=10  # NEW
+    #)  # NEW
+    #print(f"Proxy routing weights: {class_weights.tolist()}")  # NEW
 
     print(f"\n[Stage 2.B] Training calibrator on proxy unknowns\n")
     print(
         f"{'Ep':<5} | {'Loss':<8} | {'KnAcc':<7} | "
-        f"{'AUROC':<7} | {'Recall':<7} | {'Codebook'}"
+        f"{'AUROC':<7} | {'Recall':<7} | {'FPR':<7} | {'R-FPR':<7} | {'Codebook'}"
     )
-    print("-" * 65)
+    print("-" * 85)
+
+
 
     for epoch in range(1, epochs + 1):
         avg_loss = train_phase2_epoch(
@@ -143,10 +152,6 @@ def train_osr_model(
         sched_calibrator.step()
         phase2_epoch_count += 1
 
-        # Recalibrate per-class thresholds from the actual validation-known
-        # score distribution. This replaces the old hand-crafted spread-based
-        # formula and is what makes the AUROC numbers actually translate into
-        # sensible recall / FPR.
         if phase2_epoch_count % hparams.threshold_recal_interval == 0:
             val_scores, val_preds = collect_validation_scores(
                 model, val_loader_known, device
@@ -156,18 +161,20 @@ def train_osr_model(
                     val_scores, val_preds, target_fpr=hparams.target_fpr
                 )
 
-        val_known_acc = _eval_known_acc(model, val_loader_known, device)
-        val_auroc, val_recall = _eval_osr(
+        val_known_acc, val_auroc, val_recall, val_fpr = evaluate_osr(
             model, val_loader_known, val_loader_osr, device
         )
 
         cb_stats = model.get_codebook_stats()
         cb_str = f"{float(cb_stats['pct_initialised']) * 100:.0f}%"
 
+        selection_score = val_recall - val_fpr
+
         print(
             f"{epoch:02d}/{epochs} | {avg_loss:<8.4f} | "
             f"{val_known_acc:<7.3f} | {val_auroc:<7.4f} | "
-            f"{val_recall:<7.3f} | {cb_str}"
+            f"{val_recall:<7.3f} | {val_fpr:<7.3f} | "
+            f"{selection_score:<7.3f} | {cb_str}"
         )
 
         training_log.append({
@@ -176,30 +183,36 @@ def train_osr_model(
             "val_known_acc":      val_known_acc,
             "val_auroc":          val_auroc,
             "val_unknown_recall": val_recall,
+            "val_fpr":            val_fpr,
+            "val_recall_minus_fpr": selection_score,
         })
 
-        if val_auroc > best_auroc:
-            best_auroc = val_auroc
+        if selection_score > best_score:
+            best_score = selection_score
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
+
+        if epochs_since_improvement >= hparams.early_stopping_patience:
+            print(
+                f"\nEarly stopping at epoch {epoch} | "
+                f"no improvement in (recall - fpr) for {hparams.early_stopping_patience} epochs. "
+                f"Best = {best_score:.4f}"
+            )
+            break
 
     if best_state is not None:
         model.load_state_dict(best_state)
-        print(f"\nLoaded best calibrator checkpoint (val AUROC = {best_auroc:.4f})")
+        print(f"\nLoaded best calibrator checkpoint (val recall-fpr = {best_score:.4f})")
 
-    # After loading the best calibrator, rebuild thresholds one final time on
-    # validation knowns so the saved checkpoint and the test metrics use the
-    # same thresholds that the saved scores would imply.
     val_scores, val_preds = collect_validation_scores(model, val_loader_known, device)
     if val_scores.numel() > 0:
         model.calibrate_class_thresholds_from_scores(
             val_scores, val_preds, target_fpr=hparams.target_fpr
         )
 
-    test_known_acc = _eval_known_acc(model, test_loader_known, device)
-    test_auroc, test_recall = _eval_osr(
-        model, test_loader_known, test_loader_osr, device
-    )
-    _, _, _, test_fpr = evaluate_osr(
+    test_known_acc, test_auroc, test_recall, test_fpr = evaluate_osr(
         model, test_loader_known, test_loader_osr, device
     )
 
@@ -251,7 +264,7 @@ def train_osr_model(
     generate_osr_confusion_outputs(
         model, test_loader_known, test_loader_osr, device, fig_dir
     )
-    plot_osr_feature_embedding(
+    plot_osr_eval_feature_embedding(
         model, test_loader_known, test_loader_osr, device, fig_dir
     )
 

@@ -173,53 +173,37 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.alpha_tukey = char("ratio");
             params.units.delta = char("ratio");
         
-        case 3  % SFM sweep (Clean)
+        case 3 % Moving-Band Noise (MBN) / Unknown Class 8
             % Constraints
-            lims.A    = [0.8, 1.2];
-            lims.fc   = [0.5e6, 4.5e6];
-            lims.fm   = [20e3, 80e3];
-            lims.beta = [5, 15];
-            lims.beta2_ratio = [0.1, 0.3];
-            lims.phi_range  = [0, 2*pi];
-
-            % Sample
-            params.A   = lims.A(1) + diff(lims.A) * rand(1);
-            params.fm  = lims.fm(1) + diff(lims.fm) * rand(1);
-            params.beta = lims.beta(1) + diff(lims.beta) * rand(1);
-
-            beta2_ratio = lims.beta2_ratio(1) + ...
-                          diff(lims.beta2_ratio) * rand(1);
-
-            params.beta2 = beta2_ratio * params.beta;
-
-            % Carrier frequency
-            max_dev = params.fm * (params.beta + 2 * params.beta2);
-
-            fc_min_valid = lims.fc(1) + max_dev;
-            fc_max_valid = lims.fc(2) - max_dev;
-
-            params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
-
-            % sampling the phases
-            params.phi   = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
-            params.phi_m1 = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
-            params.phi_m2 = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
-
-            % Structural assertions
-            assert(params.fm > 0, 'SFM: fm must be positive.');
-            assert(params.beta2 > 0, 'SFM: beta2 must be positive.');
-
+            lims.A              = [0.8, 1.2];
+            lims.B              = [0.4e6, 1.0e6];       % Bandwidth (Hz)
+            lims.delta_f_sweep  = [1.0e6, 2.5e6];       % Total sweep excursion (Hz)
+            
+            % Fixed parameters for Overlap-Add
+            mbn_info.frame_len  = 256;
+            mbn_info.hop_len    = 128;
+            
+            % Sample basic parameters
+            params.A = lims.A(1) + diff(lims.A) * rand(1);
+            mbn_info.B = lims.B(1) + diff(lims.B) * rand(1);
+            mbn_info.delta_f_sweep = lims.delta_f_sweep(1) + diff(lims.delta_f_sweep) * rand(1);
+            
+            % Calculate valid start frequency to stay within Nyquist (0.5 to 4.5 MHz)
+            f_min_allowed = 0.5e6 + mbn_info.B / 2;
+            f_max_allowed = 4.5e6 - mbn_info.B / 2 - mbn_info.delta_f_sweep;
+            
+            mbn_info.f_start = f_min_allowed + (f_max_allowed - f_min_allowed) * rand(1);
+            
+            params.mbn_info = mbn_info;
             params.lims = lims;
-
+            
             % Units
-            params.units.A      = char("linear");
-            params.units.fc     = char("Hz");
-            params.units.fm     = char("Hz");
-            params.units.beta  = char("ratio");
-            params.units.beta2  = char("ratio");
-            params.units.phi    = char("rad");
-            params.units.phi_m1 = char("rad");
-            params.units.phi_m2 = char("rad");
+            params.units.A             = char("linear");
+            params.units.B             = char("Hz");
+            params.units.delta_f_sweep = char("Hz");
+            params.units.f_start       = char("Hz");
+            params.units.frame_len     = char("samples");
+            params.units.hop_len       = char("samples");
 
         case 4  % Partial Band Noise Jamming (Clean)
             % Constraints
@@ -623,68 +607,50 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.L        = char("integer");
             params.units.A_q      = char("linear vector");
 
-        case 10  % Moving-Band Noise (MBN) / Unknown Class 1
+        case 10  % Impulsive α‑Stable Noise Jammer  unknown 1
             % Constraints
-            lims.A              = [0.8, 1.2];
-            lims.B              = [0.4e6, 1.0e6];       % Bandwidth (Hz)
-            lims.delta_f_sweep  = [1.0e6, 2.5e6];       % Total sweep excursion (Hz)
-            
-            % Fixed parameters for Overlap-Add
-            mbn_info.frame_len  = 256;
-            mbn_info.hop_len    = 128;
-            
-            % Sample basic parameters
-            params.A = lims.A(1) + diff(lims.A) * rand(1);
-            mbn_info.B = lims.B(1) + diff(lims.B) * rand(1);
-            mbn_info.delta_f_sweep = lims.delta_f_sweep(1) + diff(lims.delta_f_sweep) * rand(1);
-            
-            % Calculate valid start frequency to stay within Nyquist (0.5 to 4.5 MHz)
-            f_min_allowed = 0.5e6 + mbn_info.B / 2;
-            f_max_allowed = 4.5e6 - mbn_info.B / 2 - mbn_info.delta_f_sweep;
-            
-            mbn_info.f_start = f_min_allowed + (f_max_allowed - f_min_allowed) * rand(1);
-            
-            params.mbn_info = mbn_info;
-            params.lims = lims;
-            
-            % Units
-            params.units.A             = char("linear");
-            params.units.B             = char("Hz");
-            params.units.delta_f_sweep = char("Hz");
-            params.units.f_start       = char("Hz");
-            params.units.frame_len     = char("samples");
-            params.units.hop_len       = char("samples");
+            lims.A          = [0.8, 1.2];
+            lims.alpha      = [1.2, 1.6];     % impulsive regime (1.4 typical)
+            lims.beta       = [-0.2, 02];     % Slight skewness/asymmetry
+            lims.gamma      = [0.5, 2.0];     % Scale parameter
+            lims.delta      = [-0.1, 0.1];    % Minor location/DC offset
 
-        case 11  % CP-2FSK (Continuous-Phase Binary FSK) – Unknown Class 2
-            % Constraints
-            lims.A      = [0.8, 1.2];
-            lims.Rc     = [50e3, 200e3];       % symbol rate (samples per second)
-            lims.delta_f  = [100e3, 400e3];      % peak frequency deviation (Hz)
-            lims.fc_range = [0.5e6, 4.5e6];    % allowed carrier range
-            lims.phi_range = [0, 2*pi];
-
-            params.A      = lims.A(1) + diff(lims.A) * rand(1);
-            params.Rc     = lims.Rc(1) + diff(lims.Rc) * rand(1);
-            params.delta_f  = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
-
-            % Bandwidth ≈ 2*(f_dev + Rs) (Carson's rule)
-            B_occ = 2 * (params.delta_f + params.Rc);
-            fc_min_valid = lims.fc_range(1) + B_occ/2;
-            fc_max_valid = lims.fc_range(2) - B_occ/2;
-            if fc_min_valid >= fc_max_valid
-                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
-            else
-                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
-            end
-
-            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            params.A     = lims.A(1) + diff(lims.A) * rand;
+            params.alpha = lims.alpha(1) + diff(lims.alpha) * rand;
+            params.gamma = lims.gamma(1) + diff(lims.gamma) * rand;
+            params.beta  = lims.beta(1) + diff(lims.beta) * rand;
+            params.delta = lims.delta(1) + diff(lims.delta) * rand;
 
             params.lims = lims;
             params.units.A     = char("linear");
-            params.units.Rc    = char("Hz");
-            params.units.delta_f = char("Hz");
+            params.units.alpha = char("ratio (1,2]");
+            params.units.beta  = char("ratio");
+            params.units.gamma = char("scale");
+            params.units.delta = char("location");          
+
+        case 11  % Chaotic Carrier Jammer (logistic map) Unknown 2
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.fc         = [0.5e6, 4.5e6];
+            lims.phi_range  = [0, 2*pi];
+            lims.Rc          = [3.9, 4.0];          % chaotic regime
+            lims.sigma      = [0.5, 1.5];          % phase spread factor
+            lims.alpha        = [0.1, 0.9];          % initial condition (avoid 0,0.5,1)
+
+            params.A   = lims.A(1) + diff(lims.A) * rand;
+            params.fc  = lims.fc(1) + diff(lims.fc) * rand;
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand;
+            params.Rc   = lims.Rc(1) + diff(lims.Rc) * rand;
+            params.sigma = lims.sigma(1) + diff(lims.sigma) * rand;
+            params.alpha    = lims.alpha(1) + diff(lims.alpha) * rand;
+
+            params.lims = lims;
+            params.units.A     = char("linear");
             params.units.fc    = char("Hz");
             params.units.phi   = char("rad");
+            params.units.Rc     = char("ratio");
+            params.units.sigma = char("ratio");
+            params.units.alpha    = char("ratio (0,1)");
 
         case 12  % Direct Sequence Spread Spectrum (DSSS) / Unknown Class 3
             % Constraints
@@ -720,72 +686,121 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.fc    = char("Hz");
             params.units.phi   = char("rad");
             
-        case 13  % Triangular FM (TFM) / Unknown Class 4
+        case 13  % Phase-Coded Pulse Jammer Unknown 4
             % Constraints
-            lims.A       = [0.8, 1.2];
-            lims.delta_f = [1e6, 4e6];       % Peak-to-peak sweep bandwidth (Hz)
-            lims.fm      = [10e3, 50e3];     % Sweep repetition frequency (Hz)
+            lims.A          = [0.8, 1.2];
+            lims.fc         = [0.5e6, 4.5e6];
+            lims.phi_range  = [0, 2*pi];
+            lims.code_type  = {'barker13', 'p4'};
+            lims.N_chips    = [13, 64];            % Barker=13, P4 up to 64
+            lims.T_pulse    = [5e-6, 50e-6];       % 5–50 µs
+            lims.PRF        = [10e3, 100e3];       % 10–100 kHz
+            lims.M          = [1, 8];               % number of pulses in window
+
+            params.A   = lims.A(1) + diff(lims.A) * rand;
+            params.fc  = lims.fc(1) + diff(lims.fc) * rand;
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand;
+
+            % Code type and chip phases
+            code_idx = randi(2);
+            pulse_info.code_type = char(lims.code_type{code_idx});
+
+            if strcmp(pulse_info.code_type, 'barker13')
+                pulse_info.N_chips = 13;
+                % Barker-13 phases: 0 for +1, π for -1
+                barker_seq = [1,1,1,1,1,-1,-1,1,1,-1,1,-1,1];
+                pulse_info.code_phase = (barker_seq == -1) * pi;   % 0 or π
+            else % p4
+                % N_chips can be 32, 64, etc. Choose randomly within range
+                n_choices = [16, 32, 64];
+                pulse_info.N_chips = n_choices(randi(3));
+                % P4 code: φ_k = π·(k-1)^2 / N_chips, for k=1..N_chips
+                k = (1:pulse_info.N_chips)';
+                pulse_info.code_phase = pi * ((k-1).^2) / pulse_info.N_chips;
+            end
+
+            pulse_info.T_pulse = lims.T_pulse(1) + diff(lims.T_pulse) * rand;
+            pulse_info.PRF     = lims.PRF(1)     + diff(lims.PRF)     * rand;
+            pulse_info.M       = randi(lims.M);
+
+            % Calculate start time so that pulses are centered in the window
+            T_obs = spec.N / spec.fs;
+            max_offset = T_obs - (pulse_info.M-1)/pulse_info.PRF - pulse_info.T_pulse;
+            if max_offset > 0
+                pulse_info.t_start = rand * max_offset;
+            else
+                pulse_info.t_start = 0;   % fallback
+            end
+
+            params.lims = lims;
+            params.pulse_info = pulse_info;
+            params.units.A         = char("linear");
+            params.units.fc        = char("Hz");
+            params.units.phi       = char("rad");
+            params.units.code_type = char("string");
+            params.units.N_chips   = char("integer");
+            params.units.code_phase= char("rad vector");
+            params.units.T_pulse   = char("seconds");
+            params.units.PRF       = char("Hz");
+            params.units.M         = char("integer");
+            params.units.t_start   = char("seconds");
+            
+        case 14  % Triangular FM (TFM) - Unknown Class 5
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.delta_f    = [1e6, 4e6];       % Peak-to-peak sweep bandwidth (Hz)
+            lims.fm       = [10e3, 50e3];     % Sweep repetition frequency (Hz)
+            lims.K    = [0.3, 0.7];       % Hardware-induced sweep asymmetry
             
             % Sample basic parameters
-            params.A = lims.A(1) + diff(lims.A) * rand(1);
-            params.delta_f = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
-            params.fm      = lims.fm(1) + diff(lims.fm) * rand(1);
+            params.A        = lims.A(1) + diff(lims.A) * rand(1);
+            params.delta_f  = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
+            params.fm       = lims.fm(1) + diff(lims.fm) * rand(1);
+            % Randomize duty cycle to simulate non-ideal VCO charging/discharging
+            params.K = lims.K(1) + diff(lims.K) * rand(1);
             
             params.lims = lims;
             
             % Units
-            params.units.A       = char("linear");
-            params.units.delta_f = char("Hz");
-            params.units.fm      = char("Hz");
+            params.units.A          = char("linear");
+            params.units.delta_f    = char("Hz");
+            params.units.fm         = char("Hz");
+            params.units.K   = char("ratio");
 
-        case 14  % Continuous-Wave Jamming (CWJ) – Unknown Class 5 (FANET DoS)
+        case 15  % Reactive Burst Jammer (narrowband, bursty) Unknown Class 6
             % Constraints
-            lims.A         = [0.8, 1.2];
-            lims.fc_range  = [0.5e6, 4.5e6];   % allowed carrier range
-            lims.phi_range = [0, 2*pi];
- 
-            params.A   = lims.A(1) + diff(lims.A) * rand(1);
-            params.fc  = lims.fc_range(1) + diff(lims.fc_range) * rand(1);
-            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
- 
+            lims.A               = [0.8, 1.2];
+            lims.fc              = [0.5e6, 4.5e6];
+            lims.B               = [100e3, 500e3];      % narrowband burst
+            lims.T_on_mean       = [8, 32];             % samples
+            lims.T_on_std        = [2, 8];              % samples
+            lims.mu_ln           = [log(50e-6), log(200e-6)];   % log of inter-arrival mean (seconds)
+            lims.sigma_ln        = [0.5, 1.2];          % shape parameter
+            lims.M_max           = [5, 20];
+
+            params.A     = lims.A(1) + diff(lims.A) * rand;
+            params.fc    = lims.fc(1) + diff(lims.fc) * rand;
+            burst_info.B     = lims.B(1) + diff(lims.B) * rand;
+            % T_on in samples: convert from sample counts directly
+            burst_info.T_on_mean = randi(lims.T_on_mean);
+            burst_info.T_on_std  = randi(lims.T_on_std);
+            burst_info.mu_ln     = lims.mu_ln(1) + diff(lims.mu_ln) * rand;
+            burst_info.sigma_ln  = lims.sigma_ln(1) + diff(lims.sigma_ln) * rand;
+            burst_info.M_max     = randi(lims.M_max);
+
             params.lims = lims;
+            params.burst_info = burst_info;
+
+            params.units.A          = char("linear");
+            params.units.fc         = char("Hz");
+            params.units.B          = char("Hz");
+            params.units.T_on_mean  = char("samples");
+            params.units.T_on_std   = char("samples");
+            params.units.mu_ln      = char("log seconds");
+            params.units.sigma_ln   = char("ratio");
+            params.units.M_max      = char("integer");
  
-            params.units.A   = char("linear");
-            params.units.fc  = char("Hz");
-            params.units.phi = char("rad");
- 
-        case 15  % Slow Sweep Jamming (SWPJ) – Unknown Class 6 (FANET anti-FH)
-            % Constraints
-            lims.A             = [0.8, 1.2];
-            lims.delta_f_sweep = [0.5e6, 2.0e6];    % sweep excursion (Hz)
-            lims.T_sweep       = [200e-6, 1000e-6]; % slow sweep period (s)
-            lims.fc_range      = [0.5e6, 4.5e6];    % allowed carrier range
-            lims.phi_range     = [0, 2*pi];
- 
-            params.A             = lims.A(1) + diff(lims.A) * rand(1);
-            params.delta_f = lims.delta_f_sweep(1) + diff(lims.delta_f_sweep) * rand(1);
-            params.T       = lims.T_sweep(1) + diff(lims.T_sweep) * rand(1);
- 
-            % Choose f_start so the swept band stays inside Nyquist
-            f_min_valid = lims.fc_range(1);
-            f_max_valid = lims.fc_range(2) - params.delta_f;
-            if f_min_valid >= f_max_valid
-                params.f0 = lims.fc_range(1);
-            else
-                params.f0 = f_min_valid + (f_max_valid - f_min_valid) * rand(1);
-            end
- 
-            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
- 
-            params.lims = lims;
- 
-            params.units.A        = char("linear");
-            params.units.delta_f = char("Hz");
-            params.units.T       = char("s");
-            params.units.f0       = char("Hz");
-            params.units.phi      = char("rad");
- 
-        case 16  % Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class 7 (burst jammer)
+        case 16  % Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class 7
             % Constraints
             lims.A          = [0.8, 1.2];
             lims.PRF        = [5e3, 50e3];     % pulse repetition frequency (Hz)
@@ -804,74 +819,57 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.PRF        = char("Hz");
             params.units.duty_cycle = char("ratio");
             params.units.rise_samp  = char("samples");
- 
-        case 17  % AM-Tone Jamming (AMTJ) – Unknown Class 8 (spoofing-flavored)
+
+        case 17 % SFM sweep (Clean)
             % Constraints
-            lims.A         = [0.8, 1.2];
-            lims.fc_range  = [0.5e6, 4.5e6];   % carrier
-            lims.fm_range  = [10e3, 100e3];    % modulation rate (Hz)
-            lims.mod_index = [0.30, 0.90];     % AM modulation depth
-            lims.phi_range = [0, 2*pi];
- 
-            params.A         = lims.A(1) + diff(lims.A) * rand(1);
-            params.fc        = lims.fc_range(1) + diff(lims.fc_range) * rand(1);
-            params.fm        = lims.fm_range(1) + diff(lims.fm_range) * rand(1);
-            params.mod_index = lims.mod_index(1) + diff(lims.mod_index) * rand(1);
-            params.phi       = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
-            params.phi_m1     = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
- 
-            params.lims = lims;
- 
-            params.units.A         = char("linear");
-            params.units.fc        = char("Hz");
-            params.units.fm        = char("Hz");
-            params.units.mod_index = char("ratio");
-            params.units.phi       = char("rad");
-            params.units.phi_m1     = char("rad");
-            
- case 18  % BPSK Smart Jammer (SRRC pulse shaped)
-            % Constraints
-            lims.A        = [0.8, 1.2];
-            lims.alpha    = [0.25, 0.35];            % SRRC roll‑off
-            lims.SPS_choices = [4, 5, 8, 10];        % samples per symbol
-            lims.filter_span  = [6, 8];              % filter span in symbols
-            lims.fc_range = [0.5e6, 4.5e6];          % allowed carrier range
-            lims.phi_range = [0, 2*pi];
+            lims.A    = [0.8, 1.2];
+            lims.fc   = [0.5e6, 4.5e6];
+            lims.fm   = [20e3, 80e3];
+            lims.beta = [5, 15];
+            lims.beta2_ratio = [0.1, 0.3];
+            lims.phi_range  = [0, 2*pi];
 
-            % Sample amplitude and carrier
-            params.A = lims.A(1) + diff(lims.A) * rand(1);
-            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            % Sample
+            params.A   = lims.A(1) + diff(lims.A) * rand(1);
+            params.fm  = lims.fm(1) + diff(lims.fm) * rand(1);
+            params.beta = lims.beta(1) + diff(lims.beta) * rand(1);
 
-            % SRRC parameters
-            params.alpha = lims.alpha(1) + diff(lims.alpha) * rand(1);
-            bpsk_info.SPS = lims.SPS_choices(randi(numel(lims.SPS_choices)));
-            bpsk_info.filter_span = lims.filter_span(randi(numel(lims.filter_span)));
+            beta2_ratio = lims.beta2_ratio(1) + ...
+                          diff(lims.beta2_ratio) * rand(1);
 
-            % Occupied bandwidth ≈ (1+alpha) * (fs / SPS)
-            B_occ = (1 + params.alpha) * (double(spec.fs) / double(bpsk_info.SPS));
+            params.beta2 = beta2_ratio * params.beta;
 
-            % Carrier frequency validity
-            fc_min_valid = max(lims.fc_range(1), B_occ/2);
-            fc_max_valid = lims.fc_range(2) - B_occ/2;
-            if fc_min_valid >= fc_max_valid
-                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
-            else
-                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
-            end
+            % Carrier frequency
+            max_dev = params.fm * (params.beta + 2 * params.beta2);
 
-            params.bpsk_info = bpsk_info;
+            fc_min_valid = lims.fc(1) + max_dev;
+            fc_max_valid = lims.fc(2) - max_dev;
+
+            params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+
+            % sampling the phases
+            params.phi   = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            params.phi_m1 = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            params.phi_m2 = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+
+            % Structural assertions
+            assert(params.fm > 0, 'SFM: fm must be positive.');
+            assert(params.beta2 > 0, 'SFM: beta2 must be positive.');
+
             params.lims = lims;
 
             % Units
-            params.units.A            = char("linear");
-            params.units.alpha        = char("roll-off");
-            params.units.bpsk_info.SPS   = char("samples");
-            params.units.bpsk_info.filter_span = char("symbols");
-            params.units.fc           = char("Hz");
-            params.units.phi          = char("rad");
-            
+            params.units.A      = char("linear");
+            params.units.fc     = char("Hz");
+            params.units.fm     = char("Hz");
+            params.units.beta  = char("ratio");
+            params.units.beta2  = char("ratio");
+            params.units.phi    = char("rad");
+            params.units.phi_m1 = char("rad");
+            params.units.phi_m2 = char("rad");
+                           
         otherwise
-            error('Invalid class_id: %d. Must be 0-13.', class_id);
+            error('Invalid class_id: %d. Must be 0-17.', class_id);
     end
 
     required_fields = clean.get_active_fields(class_id);

@@ -10,6 +10,7 @@ def combined_loss(
     labels: torch.Tensor,
     lambda_osr: float = 0.40,
     unknown_logit: torch.Tensor | None = None,
+    class_weights: torch.Tensor = None
 ) -> torch.Tensor:
     """
     OSR calibrator loss.
@@ -49,10 +50,20 @@ def combined_loss(
             osr_known = torch.tensor(0.0, device=device)
 
         if unknown.any():
-            target_u = torch.ones_like(unknown_logit[unknown])
-            osr_unknown = F.binary_cross_entropy_with_logits(
-                unknown_logit[unknown], target_u, reduction="mean"
-            )
+
+            unk_logit = unknown_logit[unknown]
+            target_u = torch.ones_like(unk_logit)
+            if class_weights is not None:
+                pred_u = logits[unknown].argmax(dim=1)  # NEW
+                w = class_weights.to(unk_logit.device)[pred_u]  # NEW
+                per = F.binary_cross_entropy_with_logits(
+                    unk_logit, target_u, reduction="none"
+                )
+                osr_unknown = (per * w).sum() / w.sum().clamp(min=1e-6)  # NEW
+            else:
+                osr_unknown = F.binary_cross_entropy_with_logits(
+                    unk_logit, target_u, reduction="mean"
+                )
         else:
             osr_unknown = torch.tensor(0.0, device=device)
     else:

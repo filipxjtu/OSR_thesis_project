@@ -15,8 +15,10 @@ function fields = get_active_fields(class_id)
         case 2  % LFMJ
             fields = ["A", "fc", "f0","f1","phi","T","K","delta","alpha_tukey"];
 
-        case 3  % SFMJ
-            fields = ["A","fc","fm","beta","beta2","phi","phi_m1", "phi_m2"];
+        case 3  % MBNJ
+            fields = ["A", ...
+                "mbn_info.frame_len","mbn_info.hop_len","mbn_info.B",...
+                "mbn_info.delta_f_sweep","mbn_info.f_start"];
 
         case 4  % PBNJ
             fields = ["A","fc","fL","fH","bandwidth","alpha","delta","theta", ...
@@ -51,36 +53,36 @@ function fields = get_active_fields(class_id)
                 "dftj_info.Q", "dftj_info.q", "dftj_info.L",...
                 "dftj_info.tau", "dftj_info.delta_f", "dftj_info.A_q"];
 
-        case 10 % MBNJ
-            fields = ["A", ...
-                "mbn_info.frame_len","mbn_info.hop_len","mbn_info.B",...
-                "mbn_info.delta_f_sweep","mbn_info.f_start"];
+        case 10  % IASNJ
+            fields = ["A", "alpha", "beta", "gamma", "delta"];
 
-        case 11 % CPFPKJ
-            fields = ["A", "Rc", "delta_f", "fc", "phi" ];
+        case 11 % CCJ
+            fields = ["A", "fc", "phi", "Rc", "sigma", "alpha"];
 
         case 12  % DSSSJ
             fields = ["A", "beta", "Rc", "fc", "phi"];
 
-        case 13  % TFMJ
-            fields = ["A", "delta_f", "fm"];
+        case 13  % PCPJ
+            fields = ["A", "fc", "phi",...
+                "pulse_info.code_type", "pulse_info.T_pulse", ...
+                "pulse_info.M", "pulse_info.N_chips",...
+                "pulse_info.code_phase", "pulse_info.t_start", "pulse_info.PRF"];
 
-        case 14  % CWJ
-            fields = ["A", "fc", "phi"];
+        case 14  % TFMJ
+            fields = ["A", "delta_f", "fm", "K"];
 
-        case 15  % SWPJ
-            fields = ["A", "delta_f", "T", "f0", "phi"];
+        case 15  % RBJ
+            fields = ["A", "fc",...
+                "burst_info.B", "burst_info.T_on_mean", "burst_info.T_on_std",...
+                "burst_info.mu_ln", "burst_info.sigma_ln", "burst_info.M_max", ];
 
         case 16  % PGNJ
             fields = ["A", ...
                 "pgn_info.PRF", "pgn_info.duty_cycle", "pgn_info.rise_samp"];
 
-        case 17  % AMTJ
-            fields = ["A", "fc", "fm", "mod_index", "phi","phi_m1" ];
+        case 17 % SFMJ
+            fields = ["A","fc","fm","beta","beta2","phi","phi_m1", "phi_m2"];
 
-        case 18  % AMTJ
-            fields = ["A", "phi","alpha" , "fc", ...
-                "bpsk_info.SPS", "bpsk_info.filter_span",];
 
         otherwise
             error("Invalid class_id: %d", class_id);

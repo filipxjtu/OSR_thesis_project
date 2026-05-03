@@ -1,41 +1,41 @@
-function x_clean = synthesize_clean_signal_class14(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS14
-% Continuous-Wave Jamming (CWJ) – Unknown Class 5 (FANET DoS)
-%
-% A single unmodulated carrier at fc with constant envelope. Canonical
-% jamming threat for FANET and the simplest hardware to deploy (signal
-% generator + amplifier). Used in the literature as the baseline DoS
-% jammer against FH-CDMA and OFDM uplinks.
-%
-% Model:
-%   x[n] = A * exp(j*(2*pi*fc*n/fs + phi))
-%
-% Spectrally a delta function at fc — distinct from every known class
-% which all carry chirp / hop / modulation / noise structure.
+function x_clean = synthesize_clean_signal_class13(params, spec)
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS13
+% Triangular FM (TFM) - Robust Variant for Unknown Class 4
+% Evolution from baseline:
+%   - Replaced fixed 0.5 duty cycle with params.symmetry to model VCO bias.
+%   - Introduced movmean smoothing on f_inst to model PLL transient response.
 
     N  = double(spec.N);
     fs = double(spec.fs);
-
-    A   = params.A;
-    fc  = params.fc;
-    phi = params.phi;
-
-    n = (0:N-1)';
-    t = n / fs;
-
-    x = A * exp(1i * (2 * pi * fc * t + phi));
-
+    
+    A       = params.A;
+    delta_f = params.delta_f;
+    fm      = params.fm;
+    K     = params.K; % Hardware-realistic asymmetry
+    
+    t = (0:N-1)' / fs;
+    
+    % Generate raw triangular frequency trajectory
+    f_inst = (delta_f / 2) * sawtooth(2 * pi * fm * t, K);
+    
+    % Tweak: Apply smoothing (5-sample window) to vertices
+    % Simulates finite bandwidth of the jammer's frequency modulator
+    f_inst = movmean(f_inst, 5);
+    
+    % Phase Integration
+    phi_inst = (2 * pi / fs) * cumsum(f_inst);
+    
+    % Modulate and scale
+    x = A * exp(1i * phi_inst);
+    
     % Normalize to unit RMS
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'CWJ: RMS is zero before normalization.');
+    assert(rms_val > 0, 'TFM: RMS is zero before normalization.');
     x_clean = x / rms_val;
-
-    % Assertions
+    
+    % Standard Validations
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');
-    assert(~all(imag(x_clean(:)) == 0), ...
-        'Signal must have non-zero imaginary component.');
-    assert(all(isfinite(x_clean(:))), ...
-        'Signal contains NaN/Inf.');
+    assert(all(isfinite(x_clean(:))), 'Signal contains NaN/Inf.');
 end

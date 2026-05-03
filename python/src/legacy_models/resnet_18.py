@@ -42,9 +42,12 @@ class LiteratureBaseline_ResNet18(nn.Module):
 
         # ── Replace classifier head ───────────────────────────────────
         in_ftrs  = backbone.fc.in_features             # 512
-        backbone.fc = nn.Linear(in_ftrs, num_classes)
-        nn.init.xavier_uniform_(backbone.fc.weight)
-        nn.init.zeros_(backbone.fc.bias)
+        backbone.fc = nn.Sequential(
+            nn.Dropout(0.6),
+            nn.Linear(in_ftrs, num_classes),
+        )
+        nn.init.xavier_uniform(backbone.fc[1].weight)
+        nn.init.zeros_(backbone.fc[1].bias)
 
         self.backbone    = backbone
         self.num_classes = num_classes

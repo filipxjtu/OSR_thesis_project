@@ -4,22 +4,21 @@ from pathlib import Path
 
 import torch
 
-from python.src.eval import evaluate_osr_model
-from python.src.eval.osr_evaluator import evaluate_osr_model_with_tsne   # NEW
+from python.src.eval import evaluate_osr_model, evaluate_osr_model_with_tsne
 from python.src.analysis import plot_snr_vs_accuracy                      # NEW
 
 
 # ── seed → fixed SNR (dB) map ───────────────────────────────────────────────
 EVAL_SEED_TO_SNR: dict[int, float] = {
-    #410:  10,
+    410:  10,
     #118:   8,
     #276:   6,
     #314:   4,
     #152:   2,
-    #340:   0,
+    340:   0,
     #142:  -2,
-    264:  -4
-    #336:  -6,
+    #264:  -4,
+    336:  -6,
     #608:  -8,
     #530: -10,
     #472: -12,
@@ -47,7 +46,7 @@ def find_project_root() -> Path:
 def main():
     project_root = find_project_root()
 
-    ckpt_seeds        = [55]
+    ckpt_seeds        = [216]
     ckpt_n_per_class  = [2500]
 
     eval_seeds        = list(EVAL_SEED_TO_SNR.keys())
@@ -143,7 +142,7 @@ def main():
         )
 
     print(f"{'=' * 95}\n")
-"""
+
     # ── SNR vs Accuracy plot ─────────────────────────────────────────────── #
     for ckpt_seed in ckpt_seeds:
         for ckpt_n in ckpt_n_per_class:
@@ -166,7 +165,7 @@ def main():
                 ckpt_tag    = ckpt_tag,
             )
 
-"""
+
 
 if __name__ == "__main__":
     main()

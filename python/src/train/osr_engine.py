@@ -16,6 +16,7 @@ def populate_codebook_epoch(
         device: torch.device,
         epoch: int = 1,
 ) -> None:
+    """Phase 1 epoch: feed knowns through the frozen backbone to update both codebooks."""
     model.eval()
     for x_stft, x_iq, x_if, y in loader:
         known = y != -1
@@ -35,13 +36,7 @@ def train_phase2_epoch(
         lambda_osr: float,
         device: torch.device,
 ) -> float:
-    """
-    Train the calibrator for one epoch on mixed knowns + proxy unknowns.
-
-    Uses forward_with_osr_logits so the loss can apply BCEWithLogitsLoss to
-    the raw calibrator logit, which avoids the vanishing-gradient near
-    sigmoid saturation that the old MSE-on-sigmoid path suffered from.
-    """
+    """Train the calibrator for one epoch on mixed knowns + proxy unknowns (BCE-with-logits)."""
     model.train()
     for p in model.base.parameters():
         p.requires_grad = False
@@ -83,11 +78,7 @@ def collect_validation_scores(
         loader_known: DataLoader,
         device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Run the calibrator over the validation KNOWNS and collect
-    (unknown_scores, predicted_classes). Used to set per-class thresholds
-    via the (1 - target_fpr) percentile.
-    """
+    """Return (unknown_scores, predicted_classes) over validation knowns for percentile thresholding."""
     model.eval()
     scores: list[torch.Tensor] = []
     preds:  list[torch.Tensor] = []
@@ -97,7 +88,7 @@ def collect_validation_scores(
         x_iq   = x_iq.to(device)
         x_if   = x_if.to(device)
 
-        logits, score, _ = model.forward_with_osr(x_stft, x_iq, x_if)
+        logits, score = model.forward_with_osr(x_stft, x_iq, x_if)
         scores.append(score.detach().cpu())
         preds.append(logits.argmax(dim=1).detach().cpu())
 
@@ -114,6 +105,7 @@ def evaluate_osr(
         loader_osr: DataLoader | None,
         device: torch.device,
 ) -> tuple[float, float, float, float]:
+    """Returns (known_acc, auroc, unknown_recall, false_alarm_rate) under per-class thresholds."""
     model.eval()
     all_labels: list[np.ndarray] = []
     all_scores: list[np.ndarray] = []
@@ -127,7 +119,7 @@ def evaluate_osr(
             x_iq   = x_iq.to(device)
             x_if   = x_if.to(device)
 
-            logits, score, _ = model.forward_with_osr(x_stft, x_iq, x_if)
+            logits, score = model.forward_with_osr(x_stft, x_iq, x_if)
 
             all_labels.append(y.cpu().numpy())
             all_scores.append(score.cpu().numpy())

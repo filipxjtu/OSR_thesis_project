@@ -1,49 +1,48 @@
 function x_clean = synthesize_clean_signal_class17(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS17
-% AM-Tone Jamming (AMTJ) – Unknown Class 8 (FANET spoofing-flavored)
-%
-% A carrier amplitude-modulated by a low-rate sinusoid. Models simple
-% spoofing/decoy approaches used against FANET command-and-control links
-% where an adversary radiates a coarse imitation of a legitimate radio
-% signal. Spectrally narrow with sidebands at fc ± fm — a useful "hard
-% negative" because it carries spectral fine structure (unlike CWJ) but
-% no chirp, hop, or wideband content (unlike LFMJ/FHJ/OFDMJ).
-%
-% Model:
-%   m[n] = 1 + mod_index * cos(2*pi*fm*n/fs + phi_m)
-%   x[n] = A * m[n] * exp(j*(2*pi*fc*n/fs + phi))
+    % SYNTHESIZE_CLEAN_SIGNAL_CLASS3
+    % Sinusoidal FM clean signal with:
+    % - primary modulation harmonic
+    % - secondary harmonic distortion
+    %
+    % Model:
+    %   prim_harm = beta1 * sin(2*pi*fm*t + phi_m1)
+    %   secd_harm = beta2 * sin(4*pi*fm*t + phi_m2)
+    %   Phi(t) = 2*pi*fc*t + prim_harm + secd_harm + phi
+    %   x(t) = A * exp(j * Phi(t))
 
-    N  = double(spec.N);
-    fs = double(spec.fs);
+    A     = params.A;
+    fc    = params.fc;
+    fm    = params.fm;
+    phi   = params.phi;
+    phi_m1 = params.phi_m1;
+    phi_m2 = params.phi_m2;
+    beta  = params.beta;
+    beta2  = params.beta2;
 
-    A         = params.A;
-    fc        = params.fc;
-    fm        = params.fm;
-    mod_index = params.mod_index;
-    phi       = params.phi;
-    phi_m1     = params.phi_m1;
+    % Time base
+    t = (double(0:spec.N-1)') / double(spec.fs);
+  
+    % Harmonic phase components
+    prim_harm = beta * sin(2 * pi * fm * t + phi_m1);
+    secd_harm = beta2 * sin(4 * pi * fm * t + phi_m2);
 
-    t = (0:N-1)' / fs;
+    % Total phase
+    phase = 2 * pi * fc * t + prim_harm + secd_harm + phi;
 
-    % AM envelope (kept positive for proper AM; mod_index in [0.3, 0.9])
-    m = 1 + mod_index * cos(2 * pi * fm * t + phi_m1);
-
-    % Carrier
-    c = exp(1i * (2 * pi * fc * t + phi));
-
-    x = A * m .* c;
+    % Complex baseband signal
+    x = A * exp(1i * phase);
 
     % Normalize to unit RMS
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'AMTJ: RMS is zero before normalization.');
+    assert(rms_val > 0, 'SFM: RMS is zero before normalization.');
     x_clean = x / rms_val;
 
     % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
-    assert(~isreal(x_clean), 'Signal must be complex.');
+    assert(~isreal(x_clean), 'Signal must be complex-valued.');
     assert(~all(imag(x_clean(:)) == 0), ...
         'Signal must have non-zero imaginary component.');
     assert(all(isfinite(x_clean(:))), ...
-        'Signal contains NaN/Inf.');
+        'Signal contains Inf or NaN values.');
 end
