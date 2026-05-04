@@ -229,9 +229,9 @@ class _HammingCodebook(nn.Module):
         }
 
 
-# Calibrator inputs: code_dist, unc, runner_up_dist, margin_codebook,
+# Calibrator inputs: code_dist, unc, emb_norm_normalised, runner_up_dist, margin_codebook,
 # logit_margin_squashed, hamming_dist_pred, hamming_margin.
-_CALIB_INPUT_DIM = 7
+_CALIB_INPUT_DIM = 8
 
 
 class OsrSAF_TriNet(nn.Module):
@@ -524,12 +524,15 @@ class OsrSAF_TriNet(nn.Module):
         hamming_dist_runner = all_h[b_idx, runner_up_class]
         hamming_margin = (hamming_dist_runner - hamming_dist_pred).clamp(min=0.0)
 
+        emb_norm = torch.norm(fp, p=2, dim=1)
+        emb_norm_normalised = (emb_norm / emb_norm.mean().clamp(min=1e-6)).clamp(0.0, 3.0) / 3.0
+
         # Softmax confidence.
         max_prob = logits.softmax(dim=1).max(dim=1).values
         unc = 1.0 - max_prob
 
         calib_input = torch.stack(
-            [code_dist, unc,
+            [code_dist, unc, emb_norm_normalised,
              runner_up_dist, margin_codebook, logit_margin_squashed,
              hamming_dist_pred, hamming_margin],
             dim=1,
