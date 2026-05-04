@@ -12,18 +12,20 @@ class OSRHParams:
 
     # Curriculum
     warmup_epochs: int = 30
-    threshold_recal_interval: int = 5
+    threshold_recal_interval: int = 1
 
     # Optimization
+    lr_backbone: float = 1e-3
     calibrator_weight_decay = 1e-4
     lr_calibrator: float = 1e-3
     batch_size: int = 32
 
     # Loss weights
     lambda_osr: float = 0.40
+    lambda_supcon: float = 0.1
 
     # Threshold calibration
     target_fpr: float = 0.1
-    phase2_epochs = 5
+    fpr_cap: float = 0.4
 
     early_stopping_patience = 10

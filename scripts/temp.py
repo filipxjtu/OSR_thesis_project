@@ -20,7 +20,7 @@ proot = find_project_root()
 
 # 2. Load your trained checkpoint
 # (Change the seed or n_per_class in the filename if you are testing a different run)
-ckpt_path = proot / f"artifacts/checkpoints/osr_saf_trinet_seed55_n2500.pt"
+ckpt_path = proot / f"artifacts/checkpoints/osr_saf_trinet_seed216_n2500.pt"
 model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
 model.eval()
 

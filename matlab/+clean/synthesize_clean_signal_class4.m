@@ -6,67 +6,56 @@ function x_clean = synthesize_clean_signal_class4(params, spec)
 % - upconversion to real RF
 % - soft envelope clipping (PA saturation at RF)
 % - downconversion to complex baseband
-% - IQ imbalance (gain and phase mismatches)
 % - carrier leakage (LO feedthrough)
-
+    
     N  = double(spec.N);
     fs = double(spec.fs);
     t = (0:N-1)'/fs;
-
+    
     fL = params.fL;
     fH = params.fH;
-    alpha = params.alpha;
-    theta = params.theta;
     delta = params.delta;
     filter_info = params.filter_info;
-
+    
     % generate complex WGN
     n_extra = ceil(filter_info.filter_order * 2);
     n_w = (randn(N + n_extra, 1) + 1i*randn(N + n_extra, 1)) / sqrt(2);
-
+    
     % design Butterworth BPF
     Wn = [fL, fH] / (fs/2);  % normalize to Nyquist
-
     assert(Wn(1) > 0 && Wn(2) < 1 && Wn(1) < Wn(2), ...
         'PBNJ: Invalid normalized band.');
-
     [b, a] = butter(filter_info.filter_order, Wn, 'bandpass');
-
-    % apply zero-phase filtering
+    
+    % apply causal filtering
     x_f = filter(b, a, n_w);
     x_f = x_f(n_extra+1 : n_extra+N);  % discard transient
     assert(length(x_f) == N, 'PBNJ: length mismatch after causal filter.');
-
+    
     % Up-conversion to RF (real signal)
     x_RF = real(x_f .* exp(1i * 2 * pi * params.fc * t));
-
+    
     % PA soft clipping
     rms_RF = sqrt(mean(x_RF.^2));
     assert(rms_RF > 0, 'PBNJ: RMS is zero after filtering.');
-
     Vsat = filter_info.Vsat_factor * rms_RF;
     scale = min(1, Vsat ./ (abs(x_RF) + eps));
     x_RF_sat = x_RF .* scale;
-
+    
     % Down-conversion to complex baseband
     x_BB = x_RF_sat .* exp(-1i * 2 * pi * params.fc * t);
-
-    % add IQ imbalance
-    I_imb = alpha * real(x_BB);
-    Q_imb = sin(theta) * real(x_BB) + cos(theta) * imag(x_BB);
-    x_IQ = I_imb + 1i * Q_imb;
-
+    
     % carrier leakage (DC offset)
-    x = x_IQ + delta;
-
+    x = x_BB + delta;
+    
     % amplitude
     x = params.A * x;
-
+    
     % normalization to unit RMS
     rms_val = sqrt(mean(abs(x).^2));
     assert(rms_val > 0, 'PBNJ: RMS is zero before normalization.');
     x_clean = x / rms_val;
-
+    
     % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');

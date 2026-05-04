@@ -1,72 +1,94 @@
 function x_clean = synthesize_clean_signal_class12(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS13
-% Direct-Sequence Spread Spectrum (DSSS) – Unknown Class
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS12
+% Reactive Burst Jammer (protocol-aware, narrowband bursts)
 %
-% Generates a BPSK‑modulated spreading waveform with:
-%  - random binary chip sequence
-%  - raised‑cosine pulse shaping (bandwidth control)
-%  - carrier upconversion
-%  - unit‑RMS normalisation
+% Bursty narrowband-noise jammer modeling a listen-then-strike attacker.
+% Each burst is band-limited Gaussian noise centered at fc with bandwidth
+% B; bursts are gated by a raised-cosine envelope to suppress out-of-band
+% splatter. Inter-arrival times follow a log-normal distribution.
+%
+% Discriminative features (post-RX-chain):
+%   - high envelope kurtosis (bursty)
+%   - narrow spectral support (unlike PGNJ which is full-band bursts)
+%   - aperiodic arrivals (unlike PGPJ's regular train)
 
     N  = double(spec.N);
     fs = double(spec.fs);
 
-    A    = params.A;
-    beta = params.beta;
-    Rc   = params.Rc;
-    fc   = params.fc;
-    phi  = params.phi;
+    A         = params.A;
+    fc        = params.fc;
+    B         = params.burst_info.B;
+    T_on_mean = params.burst_info.T_on_mean;
+    T_on_std  = params.burst_info.T_on_std;
+    mu_ln     = params.burst_info.mu_ln;
+    sigma_ln  = params.burst_info.sigma_ln;
+    M_max     = params.burst_info.M_max;
 
-    Tc = 1 / Rc;                     % chip duration (seconds)
-    Nc = ceil((N/fs) / Tc) + 1;      % enough chips to cover the whole observation
+    x = complex(zeros(N, 1));
 
-    % --- random chip sequence (uses current RNG state) ---
-    chips = 2 * (randi([0,1], Nc, 1)) - 1;   % +/- 1
-
-    % --- raised‑cosine pulse shape (sampled at fs) ---
-    span = 6;                                  % symbol periods each side
-    t_filter = (-span*Tc : 1/fs : span*Tc)';   % time vector for impulse response
-    % Avoid exactly zero to prevent division by zero
-    tiny = 1e-12;
-    t_filter(abs(t_filter) < tiny) = tiny;
-
-    % Raised‑cosine formula (full, not root‑raised)
-    num = sin(pi * t_filter / Tc) .* cos(pi * beta * t_filter / Tc);
-    den = (pi * t_filter / Tc) .* (1 - (2 * beta * t_filter / Tc).^2);
-    h_rc = num ./ den;
-
-    % Correct the limit at t = 0
-    idx0 = (abs(t_filter) < 1e-12);
-    h_rc(idx0) = 1 - beta + 4*beta/pi;
-
-    h_rc = h_rc / sum(h_rc);          % normalise to unit area
-    Lh = length(h_rc);
-
-    % --- build impulse train ---
-    imp_train = zeros(N + Lh, 1);     % extra room for filter tail
-    for k = 1:Nc
-        t_k = (k-1) * Tc;
-        n0 = round(t_k * fs) + 1;     % nearest sample index (1‑based)
-        if n0 > 0 && n0 <= N + Lh
-            imp_train(n0) = chips(k);
-        end
+    % Bandpass filter shared across bursts (deterministic given fs, fc, B)
+    Wn = [fc - B/2, fc + B/2] / (fs/2);
+    Wn = max(1e-6, min(1 - 1e-6, Wn));
+    use_bpf = (Wn(1) < Wn(2)) && (Wn(1) > 0) && (Wn(2) < 1);
+    if use_bpf
+        [b_bpf, a_bpf] = butter(4, Wn, 'bandpass');
     end
 
-    % --- apply pulse‑shaping filter ---
-    x_shaped = conv(imp_train, h_rc, 'same');   % 'same' keeps central N+Lh samples
-    % Keep only the valid N samples (discard filter transients)
-    x_base = x_shaped(1:N);
+    t_start_sec  = 0;
+    burst_count  = 0;
+    n_extra      = 100;   % filter warm-up samples to discard
 
-    % --- upconvert to carrier ---
-    t = (0:N-1)' / fs;
-    x = A * x_base .* exp(1i * (2 * pi * fc * t + phi));
+    while t_start_sec < (N/fs) && burst_count < M_max
+        % Burst duration
+        T_on_samples = max(1, round(T_on_mean + T_on_std * randn));
+        start_idx = round(t_start_sec * fs) + 1;
+        if start_idx > N
+            break;
+        end
+        T_on_samples = min(T_on_samples, N - start_idx + 1);
+        if T_on_samples < 4   % too short to taper meaningfully
+            t_start_sec = t_start_sec + exp(mu_ln + sigma_ln * randn);
+            burst_count = burst_count + 1;
+            continue;
+        end
 
-    % --- normalise to unit RMS ---
+        % Generate band-limited complex noise for this burst
+        n_wgn = (randn(T_on_samples + n_extra, 1) + ...
+                 1i * randn(T_on_samples + n_extra, 1)) / sqrt(2);
+        if use_bpf
+            n_filt = filter(b_bpf, a_bpf, n_wgn);
+            burst = n_filt(n_extra + 1 : n_extra + T_on_samples);
+        else
+            burst = n_wgn(1:T_on_samples);
+        end
+
+        % Raised-cosine taper at burst edges to suppress spectral splatter
+        ramp_len = min(8, floor(T_on_samples / 4));
+        if ramp_len > 0
+            ramp = (1 - cos(pi * (0:ramp_len-1)' / ramp_len)) / 2;
+            burst(1:ramp_len) = burst(1:ramp_len) .* ramp;
+            burst(end-ramp_len+1:end) = burst(end-ramp_len+1:end) .* flipud(ramp);
+        end
+
+        % Per-burst amplitude variation
+        A_burst = A * (0.8 + 0.4 * rand);
+
+        % Place into output
+        end_idx = start_idx + T_on_samples - 1;
+        x(start_idx:end_idx) = x(start_idx:end_idx) + A_burst * burst;
+
+        % Next start time: log-normal inter-arrival
+        inter_arrival_sec = exp(mu_ln + sigma_ln * randn);
+        t_start_sec = t_start_sec + inter_arrival_sec;
+        burst_count = burst_count + 1;
+    end
+
+    % RMS normalize
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'DSSS: RMS is zero before normalization.');
+    assert(rms_val > 0, 'ReactiveBurst: RMS is zero before normalization.');
     x_clean = x / rms_val;
 
-    % --- assertions ---
+    % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');

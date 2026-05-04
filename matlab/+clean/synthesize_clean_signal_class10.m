@@ -1,25 +1,16 @@
 function x_clean = synthesize_clean_signal_class10(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS17
-% Impulsive α‑Stable Noise Jammer
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS10
+% Impulsive α-Stable Noise Jammer
+%
+% Heavy-tailed noise jammer. With RMS normalization preserved for pipeline
+% consistency, the discriminative axis is the stability index alpha (lower
+% alpha => heavier tails => higher kurtosis surviving the RX chain).
 %
 % Model:
-%   x[n] = A * S_alpha(1, 0, 0)   (complex isotropic α‑stable)
-%   where the real and imaginary parts are jointly α‑stable.
-%   We use the Chambers–Mallows–Stuck method to generate independent
-%   α‑stable variates and combine them into complex isotropic.
-%
-% Parameters:
-%   A       : amplitude (linear)
-%   alpha   : stability index (typically 1.4 for impulsive)
-%   beta    : symmetry parameter (0 for symmetric)
-%   gamma   : scale > 0
-%   delta   : location (0 for zero‑mean)
-%
-% Output:
-%   x_clean : column vector, complex, unit RMS
+%   x[n] = alpha_stable_complex(alpha, beta, gamma, delta)
+%   then unit-RMS normalized.
 
     N  = double(spec.N);
-    fs = double(spec.fs);  % not used but kept for uniformity
 
     A     = params.A;
     alpha = params.alpha;
@@ -27,11 +18,23 @@ function x_clean = synthesize_clean_signal_class10(params, spec)
     gamma = params.gamma;
     delta = params.delta;
 
+    % Guard against numerical instability near alpha = 1
+    assert(abs(alpha - 1) > 0.05, ...
+        'alpha-stable: alpha too close to 1, CMS sampler unstable.')
+
     % Generate real and imaginary parts as independent α‑stable
     % Using CMS method (see Chambers, Mallows, Stuck 1976)
     x_real = alpha_stable_rvs(N, alpha, beta, gamma, delta);
     x_imag = alpha_stable_rvs(N, alpha, beta, gamma, delta);
     x = A * (x_real + 1i * x_imag);
+
+    mad_x = median(abs(x - median(x)));
+    if mad_x > 0
+        clip_thresh = 50 * mad_x;   % keeps the heavy tail, kills pathologies
+        mag = abs(x);
+        scale = min(1, clip_thresh ./ (mag + eps));
+        x = x .* scale;
+    end
 
     % Normalise to unit RMS
     rms_val = sqrt(mean(abs(x).^2));
@@ -49,16 +52,13 @@ function x_clean = synthesize_clean_signal_class10(params, spec)
 end
 
 function z = alpha_stable_rvs(N, alpha, beta, gamma, delta)
-% Generate N samples of symmetric (beta=0) α‑stable distribution.
-% Chambers–Mallows–Stuck algorithm.
+% Chambers-Mallows-Stuck sampler for univariate alpha-stable variates.
     U = pi * (rand(N,1) - 0.5);
     W = -log(rand(N,1));
     if beta == 0
-        % Symmetric case: simpler formula
         z = gamma * sin(alpha * U) ./ (cos(U).^(1/alpha)) .* ...
-        (cos((1-alpha)*U) ./ W).^((1-alpha)/alpha) + delta;
+            (cos((1-alpha)*U) ./ W).^((1-alpha)/alpha) + delta;
     else
-        % General case (not needed for beta=0 but included for completeness)
         t = tan(pi*alpha/2);
         B = atan(beta * t) / alpha;
         S = (1 + (beta * t).^2).^(1/(2*alpha));

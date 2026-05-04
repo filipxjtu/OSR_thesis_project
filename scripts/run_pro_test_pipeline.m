@@ -42,8 +42,8 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
             'run_pro_test_pipeline: spec.unknown_proxy_class_ids missing.');
         spec_local.class_ids = spec_local.unknown_proxy_class_ids;
         suffix = "proxy";
-        spec_local.snr_beta  = 1.9;
-        spec_local.snr_alpha = 1.2;
+        spec_local.snr_beta  = 1;
+        spec_local.snr_alpha = 1;
     else
         assert(isfield(spec_local, 'unknown_test_class_ids'), ...
             'run_pro_test_pipeline: spec.unknown_test_class_ids missing.');

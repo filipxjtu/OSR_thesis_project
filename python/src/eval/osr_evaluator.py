@@ -55,6 +55,7 @@ def evaluate_osr_model_with_tsne(
         batch_size: int = 32,
         device_str: str = "auto",
         snr_label: str | None = None,
+        threshold_override: float | None = None,
 ) -> dict:
     """
     Wraps standard evaluation and adds Confusion Matrix + t-SNE visualization.
@@ -69,7 +70,8 @@ def evaluate_osr_model_with_tsne(
         project_root=project_root,
         batch_size=batch_size,
         device_str=device_str,
-        verbose=False
+        verbose=False,
+        threshold_override = threshold_override,
     )
 
     print(f"--- Running OSR Diagnostics | SNR: {snr_label or 'Fixed'} ---")
@@ -79,6 +81,10 @@ def evaluate_osr_model_with_tsne(
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
     model.load_state_dict(torch.load(result["checkpoint"]["path"], map_location=device))
     model.eval()
+
+    if threshold_override is not None:
+        with torch.no_grad():
+            model.class_thresholds.fill_(threshold_override)
 
     eval_dataset_root = Path(f"C:/Users/user/Documents/MATLAB/eval_datasets")
     eval_known_path = eval_dataset_root / "impaired" / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
@@ -129,6 +135,7 @@ def evaluate_osr_model(
         batch_size: int = 64,
         device_str: str = "auto",
         verbose: bool = True,
+        threshold_override: float | None = None,
 ) -> dict:
     """Core metrics calculation and JSON logging."""
     device = resolve_device(device_str)
@@ -144,6 +151,12 @@ def evaluate_osr_model(
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.eval()
+
+    if threshold_override is not None:
+        with torch.no_grad():
+            model.class_thresholds.fill_(threshold_override)
+            if verbose:
+                print(f">>> Forced class_thresholds to {threshold_override}")
 
     # Data Loaders
     k_art = load_artifact(str(eval_known_path), load_params=False)

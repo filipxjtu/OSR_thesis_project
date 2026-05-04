@@ -28,27 +28,25 @@ from .osr_hparams import OSRHParams
 
 CODEBOOK_FILL_EPOCHS = 15
 
-
 def train_osr_model(
     *,
     seed: int,
     n_per_class: int,
     spec_version: str,
     project_root: Path,
-    epochs: int | None = None,
+    epochs: int = 50,
     hparams: OSRHParams | None = None,
 ):
     if hparams is None:
         hparams = OSRHParams()
 
-    if epochs is None:
-        epochs = hparams.phase2_epochs
-
     report_dir = project_root / "reports" / "validations"
     validation_report = report_dir / f"validation_seed{seed}_n{n_per_class}_{spec_version}.json"
 
     if not validation_report.exists():
-        raise RuntimeError("Validation reports missing. Run run_validation.py first.")
+        raise RuntimeError(
+            "Validation reports missing. Run run_validation.py first."
+        )
 
     pretrained_path = (
         project_root
@@ -70,11 +68,9 @@ def train_osr_model(
     print(f"Device              : {device}")
     print(f"Closed-set ckpt     : {pretrained_path.name}")
     print(f"Codebook fill epochs: {CODEBOOK_FILL_EPOCHS}")
-    print(f"Phase 2 (calibrator): up to {epochs}")
-    print(f"Target FPR          : {hparams.target_fpr:.2f}")
-    print(f"Calibrator wd       : {hparams.calibrator_weight_decay}")
+    print(f"Phase 2 (calibrator): until epoch {epochs}")
+    print(f"FPR cap (Youden)    : {hparams.fpr_cap:.2f}")
     print(f"Recal interval      : {hparams.threshold_recal_interval}")
-    print(f"Early stop patience : {hparams.early_stopping_patience}")
     print(f"{'=' * 60}\n")
 
     datasets = load_osr_datasets(project_root, seed, n_per_class, spec_version)
@@ -107,42 +103,30 @@ def train_osr_model(
         pct = float(cb_stats["pct_initialised"]) * 100
         spread = float(cb_stats["spread_per_class"].mean())
         updates = float(cb_stats["mean_updates_per_centroid"])
-        print(
-            f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | "
-            f"init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}"
-        )
+        print(f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}")
 
     model.phase2_active = True
-    model.calibrate_class_thresholds_formula()
 
     opt_calibrator = torch.optim.Adam(
         model.score_calibrator.parameters(),
         lr=hparams.lr_calibrator,
-        weight_decay=hparams.calibrator_weight_decay,
+        weight_decay=1e-5,
     )
     sched_calibrator = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt_calibrator, T_max=epochs
     )
 
     training_log: list[dict] = []
-    best_score = -float("inf")
-    best_state = None
-    epochs_since_improvement = 0
+    best_auroc  = 0.0
+    best_state  = None
     phase2_epoch_count = 0
-
-    #class_weights = compute_proxy_routing_weights(  # NEW
-        #model, train_loader, device, num_classes=10  # NEW
-    #)  # NEW
-    #print(f"Proxy routing weights: {class_weights.tolist()}")  # NEW
 
     print(f"\n[Stage 2.B] Training calibrator on proxy unknowns\n")
     print(
-        f"{'Ep':<5} | {'Loss':<8} | {'KnAcc':<7} | "
-        f"{'AUROC':<7} | {'Recall':<7} | {'FPR':<7} | {'R-FPR':<7} | {'Codebook'}"
+        f"{'Ep':<6} | {'Loss':<7} | {'KnAcc':<6} | "
+        f"{'AUROC':<6} | {'Recall':<6} | {'FPR':<6} | {'J':<7} | {'Thr':<6} | {'Codebook'}"
     )
-    print("-" * 85)
-
-
+    print("-" * 92)
 
     for epoch in range(1, epochs + 1):
         avg_loss = train_phase2_epoch(
@@ -152,67 +136,72 @@ def train_osr_model(
         sched_calibrator.step()
         phase2_epoch_count += 1
 
+        # ---- Threshold recal every epoch (interval default = 1) -----------
+        # By recal'ing every epoch, the saved thresholds always reflect the
+        # CURRENT calibrator state, so epoch-to-epoch metric comparisons are
+        # apples-to-apples. Old behavior (interval=5) caused threshold to
+        # change discontinuously, making val_J across epochs noncomparable.
         if phase2_epoch_count % hparams.threshold_recal_interval == 0:
-            val_scores, val_preds = collect_validation_scores(
-                model, val_loader_known, device
-            )
-            if val_scores.numel() > 0:
-                model.calibrate_class_thresholds_from_scores(
-                    val_scores, val_preds, target_fpr=hparams.target_fpr
+            sk, pk = collect_validation_scores(model, val_loader_known, device)
+            su, pu = collect_validation_scores(model, val_loader_osr,   device)
+            if sk.numel() > 0 and su.numel() > 0:
+                model.calibrate_class_thresholds_youden(
+                    sk, pk, su, pu,
+                    fpr_cap=hparams.fpr_cap,
+                    verbose=False,
                 )
 
-        val_known_acc, val_auroc, val_recall, val_fpr = evaluate_osr(
+        # ---- Validation metrics --------------------------------------------
+        val_known_acc = _eval_known_acc(model, val_loader_known, device)
+        _, val_auroc, val_recall, val_fpr = evaluate_osr(
             model, val_loader_known, val_loader_osr, device
         )
+        val_j = val_recall - val_fpr
+        cur_thr = float(model.class_thresholds[0].item())   # all equal under global
 
         cb_stats = model.get_codebook_stats()
         cb_str = f"{float(cb_stats['pct_initialised']) * 100:.0f}%"
 
-        selection_score = val_recall - val_fpr
-
         print(
-            f"{epoch:02d}/{epochs} | {avg_loss:<8.4f} | "
-            f"{val_known_acc:<7.3f} | {val_auroc:<7.4f} | "
-            f"{val_recall:<7.3f} | {val_fpr:<7.3f} | "
-            f"{selection_score:<7.3f} | {cb_str}"
+            f"{epoch:02d}/{epochs} | {avg_loss:<7.4f} | "
+            f"{val_known_acc:<6.3f} | {val_auroc:<6.4f} | "
+            f"{val_recall:<6.3f} | {val_fpr:<6.3f} | {val_j:<+7.4f} | "
+            f"{cur_thr:<6.3f} | {cb_str}"
         )
 
         training_log.append({
-            "epoch":              epoch,
-            "train_loss":         avg_loss,
-            "val_known_acc":      val_known_acc,
-            "val_auroc":          val_auroc,
-            "val_unknown_recall": val_recall,
-            "val_fpr":            val_fpr,
-            "val_recall_minus_fpr": selection_score,
+            "epoch":                epoch,
+            "train_loss":           avg_loss,
+            "val_known_acc":        val_known_acc,
+            "val_auroc":            val_auroc,
+            "val_unknown_recall":   val_recall,
+            "val_fpr":              val_fpr,
+            "val_recall_minus_fpr": val_j,
+            "threshold":            cur_thr,
         })
 
-        if selection_score > best_score:
-            best_score = selection_score
+        # Model selection: best AUROC. With threshold recal'd every epoch,
+        # AUROC is a clean, threshold-invariant criterion — it asks "which
+        # calibrator state gives the best score separation?" and the
+        # subsequent Youden cap takes care of the operating point.
+        if val_auroc > best_auroc:
+            best_auroc = val_auroc
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
-            epochs_since_improvement = 0
-        else:
-            epochs_since_improvement += 1
-
-        if epochs_since_improvement >= hparams.early_stopping_patience:
-            print(
-                f"\nEarly stopping at epoch {epoch} | "
-                f"no improvement in (recall - fpr) for {hparams.early_stopping_patience} epochs. "
-                f"Best = {best_score:.4f}"
-            )
-            break
 
     if best_state is not None:
         model.load_state_dict(best_state)
-        print(f"\nLoaded best calibrator checkpoint (val recall-fpr = {best_score:.4f})")
+        print(f"\nLoaded best calibrator checkpoint (val AUROC = {best_auroc:.4f})")
 
-    val_scores, val_preds = collect_validation_scores(model, val_loader_known, device)
-    if val_scores.numel() > 0:
-        model.calibrate_class_thresholds_from_scores(
-            val_scores, val_preds, target_fpr=hparams.target_fpr
+    # ---- Final Youden recal on the loaded best state ----------------------
+    sk, pk = collect_validation_scores(model, val_loader_known, device)
+    su, pu = collect_validation_scores(model, val_loader_osr,   device)
+    if sk.numel() > 0 and su.numel() > 0:
+        info = model.calibrate_class_thresholds_youden(
+            sk, pk, su, pu, fpr_cap=hparams.fpr_cap, verbose=True,
         )
 
-    test_known_acc, test_auroc, test_recall, test_fpr = evaluate_osr(
+    test_known_acc = _eval_known_acc(model, test_loader_known, device)
+    _, test_auroc, test_recall, test_fpr = evaluate_osr(
         model, test_loader_known, test_loader_osr, device
     )
 
@@ -222,6 +211,8 @@ def train_osr_model(
     print(f"AUROC           : {test_auroc:.4f}")
     print(f"Unknown recall  : {test_recall:.4f}")
     print(f"False alarm rate: {test_fpr:.4f}")
+    print(f"Youden's J      : {test_recall - test_fpr:+.4f}")
+    print(f"Final threshold : {float(model.class_thresholds[0]):.4f}")
     print(f"{'=' * 52}\n")
 
     ckpt_name = f"osr_saf_trinet_seed{seed}_n{n_per_class}.pt"
@@ -249,6 +240,7 @@ def train_osr_model(
                     "test_auroc":  test_auroc,
                     "test_recall": test_recall,
                     "test_fpr":    test_fpr,
+                    "test_j":      test_recall - test_fpr,
                 },
                 "history": training_log,
             },

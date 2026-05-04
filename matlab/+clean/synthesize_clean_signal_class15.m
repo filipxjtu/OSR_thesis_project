@@ -1,96 +1,76 @@
 function x_clean = synthesize_clean_signal_class15(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS16
-% Reactive Burst Jammer (protocol‑aware, narrowband pulses)
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS15
+% Direct-Sequence Spread Spectrum (DSSS) – Unknown Class
 %
-% Model:
-%   x(t) = sum_{k=1}^{M} A_k * w_k(t - t_k) * exp(j*2*pi*fc*t)
-%   where w_k(t) is a short burst of narrowband white Gaussian noise,
-%   duration T_on (samples), bandwidth B (Hz), centre frequency fc_maybe.
-%   Inter-arrival times are drawn from a log-normal distribution.
-%
-% Discriminative features:
-%   - extremely high envelope kurtosis (>10)
-%   - narrow bandwidth (unlike PGPJ which is full‑band bursts)
-%   - bursty but not periodic (unlike PGPJ's regular train)
-%
-% Parameters:
-%   A           : global amplitude (linear)
-%   fc          : carrier centre frequency (Hz)
-%   B           : bandwidth of each burst (Hz) – narrow (e.g., 100-500 kHz)
-%   T_on_mean   : mean burst duration (samples)
-%   T_on_std    : std of burst duration (samples)
-%   T_off_lognorm_mean : mean of log(inter-arrival) (scale parameter)
-%   T_off_lognorm_std  : std of log(inter-arrival) (shape parameter)
-%   M_max       : maximum number of bursts to generate
-%
-% Output:
-%   x_clean     : column vector, complex, unit RMS
+% Generates a BPSK‑modulated spreading waveform with:
+%  - random binary chip sequence
+%  - raised‑cosine pulse shaping (bandwidth control)
+%  - carrier upconversion
+%  - unit‑RMS normalisation
 
     N  = double(spec.N);
     fs = double(spec.fs);
 
-    A        = params.A;
-    fc       = params.fc;
-    B        = params.burst_info.B;
-    T_on_mean= params.burst_info.T_on_mean;
-    T_on_std = params.burst_info.T_on_std;
-    mu_ln    = params.burst_info.mu_ln;      % mean of log(interval)
-    sigma_ln = params.burst_info.sigma_ln;
-    M_max    = params.burst_info.M_max;
+    A    = params.A;
+    beta = params.beta;
+    Rc   = params.Rc;
+    fc   = params.fc;
+    phi  = params.phi;
 
-    x = zeros(N, 1);
+    Tc = 1 / Rc;                     % chip duration (seconds)
+    Nc = ceil((N/fs) / Tc) + 1;      % enough chips to cover the whole observation
 
-    % Generate burst start times using log-normal inter-arrival
-    t_start = 0;
-    burst_count = 0;
-    while t_start < (N/fs) && burst_count < M_max
-        % Duration of this burst (samples) – truncated normal
-        T_on_samples = max(1, round(T_on_mean + T_on_std * randn));
-        T_on_samples = min(T_on_samples, N - round(t_start * fs) - 1);
-        if T_on_samples <= 0
-            break;
+    % --- random chip sequence (uses current RNG state) ---
+    chips = 2 * (randi([0,1], Nc, 1)) - 1;   % +/- 1
+
+    % --- raised‑cosine pulse shape (sampled at fs) ---
+    span = 6;                                  % symbol periods each side
+    t_filter = (-span*Tc : 1/fs : span*Tc)';   % time vector for impulse response
+    % Avoid exactly zero to prevent division by zero
+    tiny = 1e-12;
+    t_filter(abs(t_filter) < tiny) = tiny;
+
+    % Raised‑cosine formula (full, not root‑raised)
+    num = sin(pi * t_filter / Tc) .* cos(pi * beta * t_filter / Tc);
+    den = (pi * t_filter / Tc) .* (1 - (2 * beta * t_filter / Tc).^2);
+    h_rc = num ./ den;
+
+    % Correct the limit at t = 0
+    idx0 = (abs(t_filter) < 1e-12);
+    h_rc(idx0) = 1 - beta + 4*beta/pi;
+
+    h_rc = h_rc / sum(h_rc);          % normalise to unit area
+    Lh = length(h_rc);
+
+    % --- build impulse train ---
+    imp_train = zeros(N + Lh, 1);     % extra room for filter tail
+    for k = 1:Nc
+        t_k = (k-1) * Tc;
+        n0 = round(t_k * fs) + 1;     % nearest sample index (1‑based)
+        if n0 > 0 && n0 <= N + Lh
+            imp_train(n0) = chips(k);
         end
-
-        % Band-limited noise for this burst (narrowband)
-        % Design a simple bandpass filter: Gaussian white noise -> BPF
-        n_extra = 100;
-        n_wgn = (randn(T_on_samples + n_extra, 1) + 1i*randn(T_on_samples + n_extra, 1)) / sqrt(2);
-        % Butterworth bandpass of order 4
-        Wn = [fc - B/2, fc + B/2] / (fs/2);
-        Wn = max(0, min(1, Wn));
-        if Wn(1) >= Wn(2) || Wn(2) <= 0 || Wn(1) >= 1
-            % fallback to white noise if band invalid
-            burst = n_wgn(1:T_on_samples);
-        else
-            [b, a] = butter(4, Wn, 'bandpass');
-            n_filt = filter(b, a, n_wgn);
-            burst = n_filt(n_extra+1 : n_extra+T_on_samples);
-        end
-
-        % Amplitude scaling (optional per‑burst variation)
-        A_burst = A * (0.8 + 0.4 * rand);   % 0.8–1.2
-
-        % Place into signal vector
-        start_idx = round(t_start * fs) + 1;
-        end_idx = min(start_idx + T_on_samples - 1, N);
-        burst = burst(1:end_idx - start_idx + 1);
-        x(start_idx:end_idx) = x(start_idx:end_idx) + A_burst * burst;
-
-        % Next start time: sample inter-arrival from log-normal
-        inter_arrival = exp(mu_ln + sigma_ln * randn);  % seconds
-        t_start = t_start + inter_arrival;
-        burst_count = burst_count + 1;
     end
 
+    % --- apply pulse‑shaping filter ---
+    x_shaped = conv(imp_train, h_rc, 'same');   % 'same' keeps central N+Lh samples
+    % Keep only the valid N samples (discard filter transients)
+    x_base = x_shaped(1:N);
 
+    % --- upconvert to carrier ---
+    t = (0:N-1)' / fs;
+    x = A * x_base .* exp(1i * (2 * pi * fc * t + phi));
+
+    % --- normalise to unit RMS ---
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'ReactiveBurst: RMS zero');
+    assert(rms_val > 0, 'DSSS: RMS is zero before normalization.');
     x_clean = x / rms_val;
 
-    % Assertions
-    assert(iscolumn(x_clean), 'Output must be column.');
-    assert(numel(x_clean) == spec.N, 'Length mismatch.');
+    % --- assertions ---
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');
-    assert(~all(imag(x_clean(:)) == 0), 'Imag part must exist.');
-    assert(all(isfinite(x_clean(:))), 'Inf/NaN found.');
+    assert(~all(imag(x_clean(:)) == 0), ...
+        'Signal must have non-zero imaginary component.');
+    assert(all(isfinite(x_clean(:))), 'Signal contains NaN/Inf.');
 end

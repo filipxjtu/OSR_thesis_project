@@ -381,6 +381,69 @@ class OsrSAF_TriNet(nn.Module):
 
     # Forward variants
 
+    @torch.no_grad()
+    def calibrate_class_thresholds_youden(
+            self,
+            scores_known: torch.Tensor,
+            pred_known: torch.Tensor,
+            scores_unknown: torch.Tensor,
+            pred_unknown: torch.Tensor,
+            fpr_cap: float = 0.30,
+            min_known_per_class: int = 30,
+            min_unknown_per_class: int = 5,
+            verbose: bool = False,
+    ) -> Dict[str, float]:
+        """
+        Set ALL class thresholds to a single global Youden's-J optimum on
+        validation knowns + proxy unknowns, subject to FPR <= fpr_cap.
+
+        Why single-global instead of per-class:
+          Empirically, proxy unknowns get routed to only 2-3 predicted classes
+          (those whose centroids are closest to the proxy distribution). The
+          remaining 7 classes have <5 proxy samples each and would fall back to
+          a "global" threshold computed on noisy mixed data. Test unknowns get
+          routed to a different subset of classes, so per-class tuning on val
+          doesn't transfer. A single global threshold is more robust to this
+          proxy-vs-test distribution shift.
+
+        pred_known and pred_unknown are kept in the signature for API stability
+        and possible future per-class re-introduction; not used here.
+        """
+        sk = scores_known.detach().to(self.class_thresholds.device).float()
+        su = scores_unknown.detach().to(self.class_thresholds.device).float()
+
+        info = {
+            "n_total_known": float(sk.numel()),
+            "n_total_unknown": float(su.numel()),
+            "global_thr": 0.5,
+        }
+        if sk.numel() == 0 or su.numel() == 0:
+            return info
+
+        grid = torch.linspace(0.02, 0.98, 97, device=sk.device)
+        fpr = (sk.unsqueeze(1) > grid).float().mean(dim=0)
+        tpr = (su.unsqueeze(1) > grid).float().mean(dim=0)
+        j = tpr - fpr
+        j[fpr > fpr_cap] = -1.0
+
+        if j.max() < 0:
+            # No grid point under cap — pick the lowest-FPR point.
+            thr = float(grid[fpr.argmin()].item())
+        else:
+            thr = float(grid[j.argmax()].item())
+
+        info["global_thr"] = thr
+        info["val_tpr_at_t"] = float(tpr[(grid - thr).abs().argmin()].item())
+        info["val_fpr_at_t"] = float(fpr[(grid - thr).abs().argmin()].item())
+
+        if verbose:
+            print(f"[OsrSAF_TriNet] Youden global threshold: t = {thr:.4f} | "
+                  f"val TPR = {info['val_tpr_at_t']:.3f} | val FPR = {info['val_fpr_at_t']:.3f}")
+
+        self.class_thresholds.fill_(max(0.05, min(0.95, thr)))
+        return info
+
+
     def _backbone_outputs(
             self,
             x_stft: torch.Tensor,

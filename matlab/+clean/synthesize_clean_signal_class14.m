@@ -1,4 +1,4 @@
-function x_clean = synthesize_clean_signal_class13(params, spec)
+function x_clean = synthesize_clean_signal_class14(params, spec)
 % SYNTHESIZE_CLEAN_SIGNAL_CLASS13
 % Triangular FM (TFM) - Robust Variant for Unknown Class 4
 % Evolution from baseline:

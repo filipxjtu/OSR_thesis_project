@@ -10,7 +10,7 @@ from python.src.analysis import plot_snr_vs_accuracy                      # NEW
 
 # ── seed → fixed SNR (dB) map ───────────────────────────────────────────────
 EVAL_SEED_TO_SNR: dict[int, float] = {
-    410:  10,
+    #410:  10,
     #118:   8,
     #276:   6,
     #314:   4,
@@ -18,7 +18,7 @@ EVAL_SEED_TO_SNR: dict[int, float] = {
     340:   0,
     #142:  -2,
     #264:  -4,
-    336:  -6,
+    #336:  -6,
     #608:  -8,
     #530: -10,
     #472: -12,
@@ -57,65 +57,71 @@ def main():
 
     all_results = []
 
-    for ckpt_seed in ckpt_seeds:
-        for ckpt_n in ckpt_n_per_class:
+    test_thresholds = [None]
 
-            ckpt_tag = f"s{ckpt_seed}_n{ckpt_n}"
+    for test_threshold in test_thresholds:
+        for ckpt_seed in ckpt_seeds:
+            for ckpt_n in ckpt_n_per_class:
 
-            for eval_seed in eval_seeds:
-                for eval_n in eval_n_per_class:
+                ckpt_tag = f"s{ckpt_seed}_n{ckpt_n}"
 
-                    snr_db    = EVAL_SEED_TO_SNR[eval_seed]
-                    snr_label = f"{snr_db:+d} dB"
-                    want_tsne = (
-                        GENERATE_TSNE
-                        and (TSNE_SEEDS is None or eval_seed in TSNE_SEEDS)
-                    )
+                for eval_seed in eval_seeds:
+                    for eval_n in eval_n_per_class:
 
-                    print(
-                        f"\n\nRunning OSR evaluation "
-                        f"| ckpt={ckpt_tag} "
-                        f"| eval=seed{eval_seed}_n{eval_n} "
-                        f"| SNR={snr_label}"
-                        + (" | +t-SNE" if want_tsne else "")
-                    )
-                    print("=" * 70)
-
-                    if want_tsne:
-                        tsne_dir = (
-                            project_root
-                            / "reports"
-                            / "figures"
-                            / f"osr_tsne_{ckpt_tag}"
-                        )
-                        result = evaluate_osr_model_with_tsne(
-                            ckpt_seed=ckpt_seed,
-                            ckpt_n_per_class=ckpt_n,
-                            eval_seed=eval_seed,
-                            eval_n_per_class=eval_n,
-                            eval_spec_version=eval_spec_version,
-                            project_root=project_root,
-                            fig_dir=tsne_dir,
-                            batch_size=batch_size,
-                            snr_label=snr_label,
-                        )
-                    else:
-                        result = evaluate_osr_model(
-                            ckpt_seed=ckpt_seed,
-                            ckpt_n_per_class=ckpt_n,
-                            eval_seed=eval_seed,
-                            eval_n_per_class=eval_n,
-                            eval_spec_version=eval_spec_version,
-                            project_root=project_root,
-                            batch_size=batch_size,
+                        snr_db = EVAL_SEED_TO_SNR[eval_seed]
+                        snr_label = f"{snr_db:+d} dB"
+                        want_tsne = (
+                                GENERATE_TSNE
+                                and (TSNE_SEEDS is None or eval_seed in TSNE_SEEDS)
                         )
 
-                    all_results.append(result)
+                        print(
+                            f"\n\nRunning OSR evaluation "
+                            f"| ckpt={test_threshold} "
+                            f"| ckpt={ckpt_tag} "
+                            f"| eval=seed{eval_seed}_n{eval_n} "
+                            f"| SNR={snr_label}"
+                            + (" | +t-SNE" if want_tsne else "")
+                        )
+                        print("=" * 70)
 
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                        torch.mps.empty_cache()
+                        if want_tsne:
+                            tsne_dir = (
+                                    project_root
+                                    / "reports"
+                                    / "figures"
+                                    / f"osr_tsne_{ckpt_tag}"
+                            )
+                            result = evaluate_osr_model_with_tsne(
+                                ckpt_seed=ckpt_seed,
+                                ckpt_n_per_class=ckpt_n,
+                                eval_seed=eval_seed,
+                                eval_n_per_class=eval_n,
+                                eval_spec_version=eval_spec_version,
+                                project_root=project_root,
+                                fig_dir=tsne_dir,
+                                batch_size=batch_size,
+                                snr_label=snr_label,
+                                threshold_override=test_threshold,
+                            )
+                        else:
+                            result = evaluate_osr_model(
+                                ckpt_seed=ckpt_seed,
+                                ckpt_n_per_class=ckpt_n,
+                                eval_seed=eval_seed,
+                                eval_n_per_class=eval_n,
+                                eval_spec_version=eval_spec_version,
+                                project_root=project_root,
+                                batch_size=batch_size,
+                                threshold_override=test_threshold,
+                            )
+
+                        all_results.append(result)
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                            torch.mps.empty_cache()
 
     # ── Text summary ─────────────────────────────────────────────────────── #
     print(f"\n{'=' * 95}")
