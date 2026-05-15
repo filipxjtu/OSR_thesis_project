@@ -14,7 +14,7 @@ def find_project_root() -> Path:
 
 
 # 1. Initialize the model (using your standard 10 classes)
-model = OsrSAF_TriNet(num_classes=10)
+model = OsrSAF_TriNet(num_classes=8)
 
 proot = find_project_root()
 

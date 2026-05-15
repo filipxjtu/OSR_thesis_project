@@ -1,6 +1,6 @@
 function x_clean = synthesize_clean_signal_class16(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS16
-% Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class 7 (FANET burst jammer)
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS 16
+% Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class (FANET burst jammer)
 %
 % Bursty broadband-noise jammer used to evade energy detection by
 % radiating only during short pulses. Same noise statistics as PBNJ

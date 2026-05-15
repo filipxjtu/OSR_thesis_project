@@ -25,6 +25,7 @@ def generate_osr_confusion_outputs(
         device: torch.device,
         out_dir: Path,
         n_classes: int = 10,
+        snr_label: str = None,
 ):
     """Generates normalized confusion matrix and saves per-class accuracy JSON."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +84,11 @@ def generate_osr_confusion_outputs(
                      color="white" if cm_norm[i, j] > 0.5 else BLUE_II["dark"])
 
     plt.tight_layout()
-    plt.savefig(out_dir / "osr_confusion_matrix.png", dpi=300)
+    if snr_label:
+        cm_filename = f"osr_confusion_matrix_{snr_label.replace(' ', '')}.png"
+    else:
+        cm_filename = f"osr_confusion_matrix.png"
+    plt.savefig(out_dir / cm_filename, dpi=300)
     plt.close()
 
     per_class_accuracy = {
@@ -103,6 +108,7 @@ def plot_osr_eval_feature_embedding(
         out_dir: Path,
         n_classes: int = 10,
         title_suffix: str = "",  # Preserved from your PATCH logic
+        snr_label: str = None,
 ):
     """Standardized t-SNE diagnostic plot for both known and unknown features."""
     out_dir = Path(out_dir)

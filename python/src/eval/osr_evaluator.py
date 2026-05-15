@@ -49,6 +49,7 @@ def evaluate_osr_model_with_tsne(
         ckpt_n_per_class: int,
         eval_seed: int,
         eval_n_per_class: int,
+        unk_n_per_class: int,
         eval_spec_version: str,
         project_root: Path,
         fig_dir: Path,
@@ -66,6 +67,7 @@ def evaluate_osr_model_with_tsne(
         ckpt_n_per_class=ckpt_n_per_class,
         eval_seed=eval_seed,
         eval_n_per_class=eval_n_per_class,
+        unk_n_per_class=unk_n_per_class,
         eval_spec_version=eval_spec_version,
         project_root=project_root,
         batch_size=batch_size,
@@ -86,9 +88,10 @@ def evaluate_osr_model_with_tsne(
         with torch.no_grad():
             model.class_thresholds.fill_(threshold_override)
 
-    eval_dataset_root = Path(f"C:/Users/user/Documents/MATLAB/eval_datasets")
+    eval_dataset_root = project_root / "artifacts" / "datasets"
     eval_known_path = eval_dataset_root / "impaired" / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
-    eval_unknown_path = _resolve_unknown_eval_path(eval_dataset_root, eval_spec_version, eval_seed, eval_n_per_class)
+    eval_unknown_path = eval_dataset_root / "unknown" / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{unk_n_per_class}_test.mat"
+    #eval_unknown_path = _resolve_unknown_eval_path(eval_dataset_root, eval_spec_version, eval_seed, eval_n_per_class)
 
     # Load Data
     k_art = load_artifact(str(eval_known_path), load_params=False)
@@ -103,22 +106,24 @@ def evaluate_osr_model_with_tsne(
         batch_size=batch_size, device=device)
 
     # Create sub-directory for this SNR level
-    snr_path = fig_dir / f"snr_{snr_label.replace(' ', '')}" if snr_label else fig_dir
-    snr_path.mkdir(parents=True, exist_ok=True)
+    #snr_path = fig_dir / f"snr_{snr_label.replace(' ', '')}" if snr_label else fig_dir
+    #snr_path.mkdir(parents=True, exist_ok=True)
 
     # --- Generate Confusion Matrix ---
     print(f"  Generating Confusion Matrix...")
     generate_osr_confusion_outputs(
         model=model, loader_known=k_loader, loader_osr=u_loader,
-        device=device, out_dir=snr_path, n_classes=NUM_CLASSES
+        device=device, out_dir=fig_dir, n_classes=NUM_CLASSES,
+        snr_label=snr_label,
     )
 
     # --- Generate t-SNE ---
     print(f"  Generating t-SNE Embedding...")
     plot_osr_eval_feature_embedding(
         model=model, loader_known=k_loader, loader_osr=u_loader,
-        device=device, out_dir=snr_path, n_classes=NUM_CLASSES,
-        title_suffix=f" — SNR {snr_label}" if snr_label else ""
+        device=device, out_dir=fig_dir, n_classes=NUM_CLASSES,
+        title_suffix=f" — SNR {snr_label}" if snr_label else "",
+        snr_label=snr_label,
     )
 
     return result
@@ -130,6 +135,7 @@ def evaluate_osr_model(
         ckpt_n_per_class: int,
         eval_seed: int,
         eval_n_per_class: int,
+        unk_n_per_class: int,
         eval_spec_version: str,
         project_root: Path,
         batch_size: int = 64,
@@ -144,9 +150,9 @@ def evaluate_osr_model(
         print(f"\n{'=' * 60}\nEvaluating OSR Model: seed={eval_seed}, n={eval_n_per_class}\n{'=' * 60}")
 
     ckpt_path = project_root / "artifacts" / "checkpoints" / f"osr_saf_trinet_seed{ckpt_seed}_n{ckpt_n_per_class}.pt"
-    eval_dataset_root = Path(f"C:/Users/user/Documents/MATLAB/eval_datasets")
+    eval_dataset_root = project_root / "artifacts" / "datasets"
     eval_known_path = eval_dataset_root / "impaired" / f"impaired_dataset_{eval_spec_version}_seed{eval_seed}_n{eval_n_per_class}_eval.mat"
-    eval_unknown_path = _resolve_unknown_eval_path(eval_dataset_root, eval_spec_version, eval_seed, eval_n_per_class)
+    eval_unknown_path = eval_dataset_root / "unknown" / f"unknown_dataset_{eval_spec_version}_seed{eval_seed}_n{unk_n_per_class}_test.mat"
 
     model = OsrSAF_TriNet(num_classes=NUM_CLASSES, use_pretrained=False).to(device)
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
@@ -190,7 +196,8 @@ def evaluate_osr_model(
     # Metrics
     known_mask = labels_arr != -1
     unk_mask = labels_arr == -1
-    known_acc = accuracy_score(labels_arr[known_mask], preds_arr[known_mask]) if known_mask.any() else 0.0
+    known_acc = accuracy_score(labels_arr[known_mask], final_arr[known_mask]) if known_mask.any() else 0.0
+    backbone_acc = accuracy_score(labels_arr[known_mask], preds_arr[known_mask]) if known_mask.any() else 0.0
     open_set_acc = np.mean(labels_arr == final_arr)
     binary_labels = (labels_arr == -1).astype(int)
     try:
@@ -205,6 +212,7 @@ def evaluate_osr_model(
     # This ensures you see the result for the current SNR point right now.
     print(f"\n>>> SNR Point Evaluation Complete (Seed {eval_seed})")
     print(f"    Known Accuracy   : {100 * known_acc:.2f}%")
+    print(f"    Backbone Accuracy: {100 * backbone_acc:.2f}%")
     print(f"    Open-set Accuracy: {100 * open_set_acc:.2f}%")
     print(f"    AUROC Score      : {auroc:.4f}")
     print(f"    Unknown Recall   : {100 * unk_recall:.2f}%")

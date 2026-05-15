@@ -21,5 +21,7 @@ class HParams:
     # logging
     log_interval: int = 10
 
+    num_classes: int = 10
+
     # optional reproducibility seed
     seed: Optional[int] = None

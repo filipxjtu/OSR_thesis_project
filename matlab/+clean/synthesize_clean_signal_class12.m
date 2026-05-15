@@ -1,68 +1,76 @@
 function x_clean = synthesize_clean_signal_class12(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS12
-% Impulsive α-Stable Noise Jammer
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS 12
+% Direct-Sequence Spread Spectrum (DSSS) – Unknown Class 3
 %
-% Heavy-tailed noise jammer. With RMS normalization preserved for pipeline
-% consistency, the discriminative axis is the stability index alpha (lower
-% alpha => heavier tails => higher kurtosis surviving the RX chain).
-%
-% Model:
-%   x[n] = alpha_stable_complex(alpha, beta, gamma, delta)
-%   then unit-RMS normalized.
+% Generates a BPSK‑modulated spreading waveform with:
+%  - random binary chip sequence
+%  - raised‑cosine pulse shaping (bandwidth control)
+%  - carrier upconversion
+%  - unit‑RMS normalisation
 
     N  = double(spec.N);
+    fs = double(spec.fs);
 
-    A     = params.A;
-    alpha = params.alpha;
-    beta  = params.beta;
-    gamma = params.gamma;
-    delta = params.delta;
+    A    = params.A;
+    beta = params.beta;
+    Rc   = params.Rc;
+    fc   = params.fc;
+    phi  = params.phi;
 
-    % Guard against numerical instability near alpha = 1
-    assert(abs(alpha - 1) > 0.05, ...
-        'alpha-stable: alpha too close to 1, CMS sampler unstable.')
+    Tc = 1 / Rc;                     % chip duration (seconds)
+    Nc = ceil((N/fs) / Tc) + 1;      % enough chips to cover the whole observation
 
-    % Generate real and imaginary parts as independent α‑stable
-    % Using CMS method (see Chambers, Mallows, Stuck 1976)
-    x_real = alpha_stable_rvs(N, alpha, beta, gamma, delta);
-    x_imag = alpha_stable_rvs(N, alpha, beta, gamma, delta);
-    x = A * (x_real + 1i * x_imag);
+    % --- random chip sequence (uses current RNG state) ---
+    chips = 2 * (randi([0,1], Nc, 1)) - 1;   % +/- 1
 
-    mad_x = median(abs(x - median(x)));
-    if mad_x > 0
-        clip_thresh = 50 * mad_x;   % keeps the heavy tail, kills pathologies
-        mag = abs(x);
-        scale = min(1, clip_thresh ./ (mag + eps));
-        x = x .* scale;
+    % --- raised‑cosine pulse shape (sampled at fs) ---
+    span = 6;                                  % symbol periods each side
+    t_filter = (-span*Tc : 1/fs : span*Tc)';   % time vector for impulse response
+    % Avoid exactly zero to prevent division by zero
+    tiny = 1e-12;
+    t_filter(abs(t_filter) < tiny) = tiny;
+
+    % Raised‑cosine formula (full, not root‑raised)
+    num = sin(pi * t_filter / Tc) .* cos(pi * beta * t_filter / Tc);
+    den = (pi * t_filter / Tc) .* (1 - (2 * beta * t_filter / Tc).^2);
+    h_rc = num ./ den;
+
+    % Correct the limit at t = 0
+    idx0 = (abs(t_filter) < 1e-12);
+    h_rc(idx0) = 1 - beta + 4*beta/pi;
+
+    h_rc = h_rc / sum(h_rc);          % normalise to unit area
+    Lh = length(h_rc);
+
+    % --- build impulse train ---
+    imp_train = zeros(N + Lh, 1);     % extra room for filter tail
+    for k = 1:Nc
+        t_k = (k-1) * Tc;
+        n0 = round(t_k * fs) + 1;     % nearest sample index (1‑based)
+        if n0 > 0 && n0 <= N + Lh
+            imp_train(n0) = chips(k);
+        end
     end
 
-    % Normalise to unit RMS
+    % --- apply pulse‑shaping filter ---
+    x_shaped = conv(imp_train, h_rc, 'same');   % 'same' keeps central N+Lh samples
+    % Keep only the valid N samples (discard filter transients)
+    x_base = x_shaped(1:N);
+
+    % --- upconvert to carrier ---
+    t = (0:N-1)' / fs;
+    x = A * x_base .* exp(1i * (2 * pi * fc * t + phi));
+
+    % --- normalise to unit RMS ---
     rms_val = sqrt(mean(abs(x).^2));
-    if rms_val == 0
-        rms_val = eps;
-    end
+    assert(rms_val > 0, 'DSSS: RMS is zero before normalization.');
     x_clean = x / rms_val;
 
-    % Assertions
-    assert(iscolumn(x_clean), 'Output must be column.');
-    assert(numel(x_clean) == spec.N, 'Length mismatch.');
+    % --- assertions ---
+    assert(iscolumn(x_clean), 'Output must be a column vector.');
+    assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');
-    assert(~all(imag(x_clean(:)) == 0), 'Imag part must exist.');
-    assert(all(isfinite(x_clean(:))), 'Inf/NaN found.');
-end
-
-function z = alpha_stable_rvs(N, alpha, beta, gamma, delta)
-% Chambers-Mallows-Stuck sampler for univariate alpha-stable variates.
-    U = pi * (rand(N,1) - 0.5);
-    W = -log(rand(N,1));
-    if beta == 0
-        z = gamma * sin(alpha * U) ./ (cos(U).^(1/alpha)) .* ...
-            (cos((1-alpha)*U) ./ W).^((1-alpha)/alpha) + delta;
-    else
-        t = tan(pi*alpha/2);
-        B = atan(beta * t) / alpha;
-        S = (1 + (beta * t).^2).^(1/(2*alpha));
-        z = gamma * S * sin(alpha*(U + B)) ./ (cos(U).^(1/alpha)) .* ...
-            (cos((1-alpha)*U - alpha*B) ./ W).^((1-alpha)/alpha) + delta;
-    end
+    assert(~all(imag(x_clean(:)) == 0), ...
+        'Signal must have non-zero imaginary component.');
+    assert(all(isfinite(x_clean(:))), 'Signal contains NaN/Inf.');
 end

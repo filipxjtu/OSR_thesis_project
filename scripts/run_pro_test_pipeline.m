@@ -1,4 +1,4 @@
-function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, mode)
+function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, mode, xxx)
     % run_pro_test_pipeline
     % Generates an unknown dataset for OSR. The `mode` argument selects
     % which subset of unknown class ids to use (proxy vs test) and writes
@@ -25,7 +25,7 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
         n_per_class (1,1) double {mustBeInteger, mustBePositive}
         dataset_seed (1,1) double {mustBeInteger, mustBeNonnegative}
         mode        (1,1) string {mustBeMember(mode, ["proxy", "test"])}
-        %xxx
+        xxx
     end
 
     project_root = fileparts(fileparts(mfilename('fullpath')));
@@ -42,8 +42,8 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
             'run_pro_test_pipeline: spec.unknown_proxy_class_ids missing.');
         spec_local.class_ids = spec_local.unknown_proxy_class_ids;
         suffix = "proxy";
-        spec_local.snr_beta  = 1;
-        spec_local.snr_alpha = 1;
+        spec_local.snr_beta  = 1.9;
+        spec_local.snr_alpha = 1.2;
     else
         assert(isfield(spec_local, 'unknown_test_class_ids'), ...
             'run_pro_test_pipeline: spec.unknown_test_class_ids missing.');
@@ -56,10 +56,10 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
     version = spec_local.spec_version;
 
     % SNR override — applies to both modes; tweak as needed
-    spec_local.snr_mode = "range";
+    spec_local.snr_mode = "fixed";
     spec_local.snr_train_db = [-15 15];
     spec_local.snr_eval_db  = [-10 10];
-    %spec_local.snr_fixed_snr_db = xxx;
+    spec_local.snr_fixed_db = xxx;
 
 
     % Impairment generation always runs in eval mode for unknowns,
@@ -73,9 +73,9 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
     if ~exist(output_dir,'dir'); mkdir(output_dir); end
 
     fprintf('=== UNKNOWN PIPELINE START (mode=%s) ===\n', suffix);
-    fprintf('Seed: %d | n_per_class: %d | classes: [%s]\n', ...
+    fprintf('Seed: %d | n_per_class: %d | classes: [%s] | SNR: %s \n', ...
             dataset_seed, n_per_class, ...
-            strjoin(string(spec_local.class_ids), ','));
+            strjoin(string(spec_local.class_ids), ','), spec_local.snr_mode);
 
     % Generate Clean Unknowns
     dataset = clean.generate_clean_dataset(n_per_class, spec_local);
@@ -97,5 +97,5 @@ function unknown_data = run_pro_test_pipeline(spec, n_per_class, dataset_seed, m
     assert(unknown_data.meta.dataset_seed == dataset_seed, ...
         'Seed mismatch.');
 
-    fprintf('=== UNKNOWN PIPELINE COMPLETE → %s ===\n', filename);
+    fprintf('=== UNKNOWN %s PIPELINE COMPLETE.  ===\n', mode);
 end

@@ -21,12 +21,14 @@ from .osr_engine import (
     populate_codebook_epoch,
     train_phase2_epoch,
     evaluate_osr,
+    collect_feature_stats,
     collect_validation_scores,
- )
+)
 from .osr_hparams import OSRHParams
 
 
 CODEBOOK_FILL_EPOCHS = 15
+
 
 def train_osr_model(
     *,
@@ -105,10 +107,23 @@ def train_osr_model(
         updates = float(cb_stats["mean_updates_per_centroid"])
         print(f"  Fill epoch {fill_epoch}/{CODEBOOK_FILL_EPOCHS} | init={pct:.0f}% | spread={spread:.4f} | updates/centroid={updates:.1f}")
 
+    # ------------------------------------------------------------------
+    # Warm-start thresholds from codebook spread before Phase 2 begins.
+    # ------------------------------------------------------------------
+    model.calibrate_class_thresholds_formula(base_threshold=0.5)
+    print("  Warm-started class thresholds from codebook spread.\n")
+
     model.phase2_active = True
 
+    # ------------------------------------------------------------------
+    # Optimiser: calibrator + learnable temperature (not base model).
+    # ------------------------------------------------------------------
+    calibrator_params = list(model.score_calibrator.parameters())
+    if hasattr(model, "logit_temperature"):
+        calibrator_params.append(model.logit_temperature)
+
     opt_calibrator = torch.optim.Adam(
-        model.score_calibrator.parameters(),
+        calibrator_params,
         lr=hparams.lr_calibrator,
         weight_decay=1e-5,
     )
@@ -123,8 +138,8 @@ def train_osr_model(
 
     print(f"\n[Stage 2.B] Training calibrator on proxy unknowns\n")
     print(
-        f"{'Ep':<6} | {'Loss':<7} | {'KnAcc':<6} | "
-        f"{'AUROC':<6} | {'Recall':<6} | {'FPR':<6} | {'J':<7} | {'Thr':<6} | {'Codebook'}"
+        f"{'Ep':<<6} | {'Loss':<<7} | {'KnAcc':<<6} | "
+        f"{'AUROC':<<6} | {'Recall':<<6} | {'FPR':<<6} | {'J':<<7} | {'Thr':<<6} | {'Codebook'}"
     )
     print("-" * 92)
 
@@ -136,20 +151,24 @@ def train_osr_model(
         sched_calibrator.step()
         phase2_epoch_count += 1
 
-        # ---- Threshold recal every epoch (interval default = 1) -----------
-        # By recal'ing every epoch, the saved thresholds always reflect the
-        # CURRENT calibrator state, so epoch-to-epoch metric comparisons are
-        # apples-to-apples. Old behavior (interval=5) caused threshold to
-        # change discontinuously, making val_J across epochs noncomparable.
+        # ------------------------------------------------------------------
+        # Threshold recalibration every N epochs (N from hparams, default 5).
+        # After Youden, apply a conservative guard so we never accept too
+        # many false rejections on knowns.
+        # ------------------------------------------------------------------
         if phase2_epoch_count % hparams.threshold_recal_interval == 0:
             sk, pk = collect_validation_scores(model, val_loader_known, device)
-            su, pu = collect_validation_scores(model, val_loader_osr,   device)
+            su, pu = collect_validation_scores(model, val_loader_osr, device)
             if sk.numel() > 0 and su.numel() > 0:
-                model.calibrate_class_thresholds_youden(
+                info = model.calibrate_class_thresholds_youden(
                     sk, pk, su, pu,
                     fpr_cap=hparams.fpr_cap,
                     verbose=False,
                 )
+                # Conservative cap: threshold >= 90th percentile of known scores.
+                conservative_thr = float(torch.quantile(sk.float(), 0.90).item())
+                final_thr = max(info["global_thr"], conservative_thr)
+                model.class_thresholds.fill_(max(0.05, min(0.95, final_thr)))
 
         # ---- Validation metrics --------------------------------------------
         val_known_acc = _eval_known_acc(model, val_loader_known, device)
@@ -157,7 +176,7 @@ def train_osr_model(
             model, val_loader_known, val_loader_osr, device
         )
         val_j = val_recall - val_fpr
-        cur_thr = float(model.class_thresholds[0].item())   # all equal under global
+        cur_thr = float(model.class_thresholds[0].item())   # global -> all equal
 
         cb_stats = model.get_codebook_stats()
         cb_str = f"{float(cb_stats['pct_initialised']) * 100:.0f}%"
@@ -180,10 +199,7 @@ def train_osr_model(
             "threshold":            cur_thr,
         })
 
-        # Model selection: best AUROC. With threshold recal'd every epoch,
-        # AUROC is a clean, threshold-invariant criterion — it asks "which
-        # calibrator state gives the best score separation?" and the
-        # subsequent Youden cap takes care of the operating point.
+        last_state = {k: v.clone() for k, v in model.state_dict().items()}
         if val_auroc > best_auroc:
             best_auroc = val_auroc
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
@@ -194,11 +210,15 @@ def train_osr_model(
 
     # ---- Final Youden recal on the loaded best state ----------------------
     sk, pk = collect_validation_scores(model, val_loader_known, device)
-    su, pu = collect_validation_scores(model, val_loader_osr,   device)
+    su, pu = collect_validation_scores(model, val_loader_osr, device)
     if sk.numel() > 0 and su.numel() > 0:
         info = model.calibrate_class_thresholds_youden(
             sk, pk, su, pu, fpr_cap=hparams.fpr_cap, verbose=True,
         )
+        # Apply the same conservative guard to the final test threshold.
+        conservative_thr = float(torch.quantile(sk.float(), 0.90).item())
+        final_thr = max(info["global_thr"], conservative_thr)
+        model.class_thresholds.fill_(max(0.05, min(0.95, final_thr)))
 
     test_known_acc = _eval_known_acc(model, test_loader_known, device)
     _, test_auroc, test_recall, test_fpr = evaluate_osr(
@@ -216,10 +236,16 @@ def train_osr_model(
     print(f"{'=' * 52}\n")
 
     ckpt_name = f"osr_saf_trinet_seed{seed}_n{n_per_class}.pt"
+    ckpt_last = f"osr_saf_trinet_seed{seed}_n{n_per_class}_last.pt"
     ckpt_path = prepare_unique_file(
         project_root / "artifacts" / "checkpoints", ckpt_name
     )
     torch.save(model.state_dict(), ckpt_path)
+
+    ckpt_last_path = prepare_unique_file(
+        project_root / "artifacts" / "checkpoints", ckpt_last
+    )
+    torch.save(last_state, ckpt_last_path)
 
     log_name = f"osr_saf_trinet_seed{seed}_n{n_per_class}.json"
     log_path = prepare_unique_file(
@@ -247,6 +273,14 @@ def train_osr_model(
             f,
             indent=4,
         )
+
+    collect_feature_stats(
+        model,
+        test_loader_known,
+        test_loader_osr,
+        device,
+        save_path=project_root / "artifacts" / "logs" / "osr_training" / f"feature_stats_seed{seed}_n{n_per_class}.json",
+    )
 
     fig_name = f"osr_saf_trinet_seed{seed}_n{n_per_class}"
     fig_dir  = prepare_unique_file(

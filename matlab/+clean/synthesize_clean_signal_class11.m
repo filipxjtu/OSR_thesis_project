@@ -1,94 +1,45 @@
 function x_clean = synthesize_clean_signal_class11(params, spec)
 % SYNTHESIZE_CLEAN_SIGNAL_CLASS11
-% Reactive Burst Jammer (protocol-aware, narrowband bursts)
+% CP-2FSK (Continuous-Phase Binary FSK) – Unknown Class 2
 %
-% Bursty narrowband-noise jammer modeling a listen-then-strike attacker.
-% Each burst is band-limited Gaussian noise centered at fc with bandwidth
-% B; bursts are gated by a raised-cosine envelope to suppress out-of-band
-% splatter. Inter-arrival times follow a log-normal distribution.
-%
-% Discriminative features (post-RX-chain):
-%   - high envelope kurtosis (bursty)
-%   - narrow spectral support (unlike PGNJ which is full-band bursts)
-%   - aperiodic arrivals (unlike PGPJ's regular train)
+% Emits a constant-envelope signal whose instantaneous frequency
+% switches between fc - f_dev (bit 0) and fc + f_dev (bit 1).
+% Phase is continuous across symbol boundaries.
+% Uses random binary data with symbol rate Rs (Baud).
 
     N  = double(spec.N);
     fs = double(spec.fs);
 
-    A         = params.A;
-    fc        = params.fc;
-    B         = params.burst_info.B;
-    T_on_mean = params.burst_info.T_on_mean;
-    T_on_std  = params.burst_info.T_on_std;
-    mu_ln     = params.burst_info.mu_ln;
-    sigma_ln  = params.burst_info.sigma_ln;
-    M_max     = params.burst_info.M_max;
+    A     = params.A;
+    Rc    = params.Rc;          % symbol rate
+    delta_f = params.delta_f;       % frequency deviation
+    fc    = params.fc;          % carrier
+    phi0  = params.phi;         % initial phase
 
-    x = complex(zeros(N, 1));
+    Ts = 1 / Rc;
+    Nsym = ceil(N / (Ts * fs)) + 2;   % enough symbols to cover N samples
+    bits = randi([0,1], Nsym, 1);     % random data
 
-    % Bandpass filter shared across bursts (deterministic given fs, fc, B)
-    Wn = [fc - B/2, fc + B/2] / (fs/2);
-    Wn = max(1e-6, min(1 - 1e-6, Wn));
-    use_bpf = (Wn(1) < Wn(2)) && (Wn(1) > 0) && (Wn(2) < 1);
-    if use_bpf
-        [b_bpf, a_bpf] = butter(4, Wn, 'bandpass');
-    end
+    % Build time vector and symbol boundaries
+    t = (0:N-1)' / fs;
+    sym_boundaries = (0:Nsym) * Ts;
+    % For each sample, find its symbol index
+    sym_idx = sum(t >= sym_boundaries, 2);
+    sym_idx = min(sym_idx, Nsym);
 
-    t_start_sec  = 0;
-    burst_count  = 0;
-    n_extra      = 100;   % filter warm-up samples to discard
+    % Instantaneous frequency per sample
+    f_inst = fc + (2*double(bits(sym_idx)) - 1) * delta_f;
 
-    while t_start_sec < (N/fs) && burst_count < M_max
-        % Burst duration
-        T_on_samples = max(1, round(T_on_mean + T_on_std * randn));
-        start_idx = round(t_start_sec * fs) + 1;
-        if start_idx > N
-            break;
-        end
-        T_on_samples = min(T_on_samples, N - start_idx + 1);
-        if T_on_samples < 4   % too short to taper meaningfully
-            t_start_sec = t_start_sec + exp(mu_ln + sigma_ln * randn);
-            burst_count = burst_count + 1;
-            continue;
-        end
+    % Continuous phase: integrate frequency
+    phase = 2 * pi * cumsum(f_inst) / fs + phi0;
 
-        % Generate band-limited complex noise for this burst
-        n_wgn = (randn(T_on_samples + n_extra, 1) + ...
-                 1i * randn(T_on_samples + n_extra, 1)) / sqrt(2);
-        if use_bpf
-            n_filt = filter(b_bpf, a_bpf, n_wgn);
-            burst = n_filt(n_extra + 1 : n_extra + T_on_samples);
-        else
-            burst = n_wgn(1:T_on_samples);
-        end
+    x = A * exp(1i * phase);
 
-        % Raised-cosine taper at burst edges to suppress spectral splatter
-        ramp_len = min(8, floor(T_on_samples / 4));
-        if ramp_len > 0
-            ramp = (1 - cos(pi * (0:ramp_len-1)' / ramp_len)) / 2;
-            burst(1:ramp_len) = burst(1:ramp_len) .* ramp;
-            burst(end-ramp_len+1:end) = burst(end-ramp_len+1:end) .* flipud(ramp);
-        end
-
-        % Per-burst amplitude variation
-        A_burst = A * (0.8 + 0.4 * rand);
-
-        % Place into output
-        end_idx = start_idx + T_on_samples - 1;
-        x(start_idx:end_idx) = x(start_idx:end_idx) + A_burst * burst;
-
-        % Next start time: log-normal inter-arrival
-        inter_arrival_sec = exp(mu_ln + sigma_ln * randn);
-        t_start_sec = t_start_sec + inter_arrival_sec;
-        burst_count = burst_count + 1;
-    end
-
-    % RMS normalize
+    % Normalise to unit RMS
     rms_val = sqrt(mean(abs(x).^2));
-    assert(rms_val > 0, 'ReactiveBurst: RMS is zero before normalization.');
+    assert(rms_val > 0, 'CPFSK: RMS is zero before normalization.');
     x_clean = x / rms_val;
 
-    % Assertions
     assert(iscolumn(x_clean), 'Output must be a column vector.');
     assert(numel(x_clean) == spec.N, 'Output length mismatch.');
     assert(~isreal(x_clean), 'Signal must be complex.');

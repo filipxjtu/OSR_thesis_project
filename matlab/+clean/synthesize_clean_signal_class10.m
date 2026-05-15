@@ -1,6 +1,6 @@
 function x_clean = synthesize_clean_signal_class10(params, spec)
 % SYNTHESIZE_CLEAN_SIGNAL_CLASS10
-% Moving-Band Noise (MBN) - Unknown Class 1 (proxy)
+% Moving-Band Noise (MBN) - Unknown Class 1 
 % Simulates a sweeping barrage jammer targeting multiple sub-bands sequentially.
 % Uses an Overlap-Add (OLA) time-varying filter approach to ensure phase continuity.
 

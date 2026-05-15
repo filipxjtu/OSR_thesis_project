@@ -56,22 +56,22 @@ function fields = get_active_fields(class_id)
                 "mbn_info.frame_len","mbn_info.hop_len","mbn_info.B",...
                 "mbn_info.delta_f_sweep","mbn_info.f_start"];
 
-        case 11  % RBJ
+        case 11 % CPFPKJ
+            fields = ["A", "Rc", "delta_f", "fc", "phi" ];
+
+        case 12  % DSSSJ
+            fields = ["A", "beta", "Rc", "fc", "phi"];
+
+        case 13  % TFMJ
+            fields = ["A", "delta_f", "fm", "K"];
+
+        case 14 % CFMJ
+            fields = ["A", "fc", "phi", "Rc", "sigma", "alpha", "fm"];
+
+        case 15  % RBJ
             fields = ["A", "fc",...
                 "burst_info.B", "burst_info.T_on_mean", "burst_info.T_on_std",...
                 "burst_info.mu_ln", "burst_info.sigma_ln", "burst_info.M_max", ];
-
-        case 12  % IASNJ
-            fields = ["A", "alpha", "beta", "gamma", "delta"];
-
-        case 13 % CFMJ
-            fields = ["A", "fc", "phi", "Rc", "sigma", "alpha", "fm"];
-
-        case 14  % TFMJ
-            fields = ["A", "delta_f", "fm", "K"];
-
-        case 15  % DSSSJ
-            fields = ["A", "beta", "Rc", "fc", "phi"];
 
         case 16  % PGNJ
             fields = ["A", ...
@@ -84,6 +84,12 @@ function fields = get_active_fields(class_id)
                 "pulse_info.code_phase", "pulse_info.t_start", "pulse_info.PRF",...
                 "pulse_info.L_chip", "pulse_info.L_pulse"];
 
+        case 18  % IASNJ
+            fields = ["A", "alpha", "beta", "gamma", "delta"];
+
+        case 19 % I-OFDMJ
+            fields = ["A", ...
+                "iofdm_info.D_b_range", "iofdm_info.G_b_range", "iofdm_info.taper_taps"];
 
         otherwise
             error("Invalid class_id: %d", class_id);

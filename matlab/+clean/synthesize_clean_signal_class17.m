@@ -1,5 +1,5 @@
 function x_clean = synthesize_clean_signal_class17(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS17
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS 17
 % Phase-Coded Pulse Jammer (Barker-13 or true P4 polyphase)
 %
 % A pulse train where each pulse's carrier phase is modulated by a

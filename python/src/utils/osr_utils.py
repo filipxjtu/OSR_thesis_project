@@ -24,8 +24,8 @@ def combined_loss(
     weighted by lambda_osr.
 
     If `unknown_logit` (the pre-sigmoid output of the calibrator) is provided,
-    we use binary_cross_entropy_with_logits — numerically stable and avoids
-    the vanishing-gradient pathology of MSE-on-sigmoid near saturation.
+    we use a focal-weighted binary_cross_entropy_with_logits — numerically
+    stable and focuses learning on hard examples.
 
     If only `unknown_score` (post-sigmoid) is provided, we fall back to the
     original MSE formulation. Kept for backward compatibility with any
@@ -39,31 +39,37 @@ def combined_loss(
     known   = labels != -1
     unknown = ~known
 
+    gamma = 2.0  # focusing parameter; increase if you still see overlap
+
     if unknown_logit is not None:
-        # BCE-with-logits path (preferred)
+        # ---------- knowns (target = 0) ----------
         if known.any():
             target_k = torch.zeros_like(unknown_logit[known])
-            osr_known = F.binary_cross_entropy_with_logits(
-                unknown_logit[known], target_k, reduction="mean"
+            bce_k = F.binary_cross_entropy_with_logits(
+                unknown_logit[known], target_k, reduction="none"
             )
+            p_k = torch.sigmoid(unknown_logit[known])   # p(unknown) for knowns
+            # hard knowns have p_k → 1 (calibrator wrongly thinks they are unknown)
+            osr_known = ((p_k + 1e-6) ** gamma * bce_k).mean()
         else:
             osr_known = torch.tensor(0.0, device=device)
 
+        # ---------- unknowns (target = 1) ----------
         if unknown.any():
-
             unk_logit = unknown_logit[unknown]
             target_u = torch.ones_like(unk_logit)
+            bce_u = F.binary_cross_entropy_with_logits(
+                unk_logit, target_u, reduction="none"
+            )
+            p_u = torch.sigmoid(unk_logit)   # p(unknown) for unknowns
+            # hard unknowns have p_u → 0 (calibrator wrongly thinks they are known)
             if class_weights is not None:
-                pred_u = logits[unknown].argmax(dim=1)  # NEW
-                w = class_weights.to(unk_logit.device)[pred_u]  # NEW
-                per = F.binary_cross_entropy_with_logits(
-                    unk_logit, target_u, reduction="none"
-                )
-                osr_unknown = (per * w).sum() / w.sum().clamp(min=1e-6)  # NEW
+                pred_u = logits[unknown].argmax(dim=1)
+                w = class_weights.to(unk_logit.device)[pred_u]
+                focal_u = (1.0 - p_u + 1e-6) ** gamma * bce_u
+                osr_unknown = (focal_u * w).sum() / w.sum().clamp(min=1e-6)
             else:
-                osr_unknown = F.binary_cross_entropy_with_logits(
-                    unk_logit, target_u, reduction="mean"
-                )
+                osr_unknown = ((1.0 - p_u + 1e-6) ** gamma * bce_u).mean()
         else:
             osr_unknown = torch.tensor(0.0, device=device)
     else:

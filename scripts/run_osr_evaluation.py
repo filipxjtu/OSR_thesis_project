@@ -6,23 +6,23 @@ import torch
 
 from python.src.eval import evaluate_osr_model, evaluate_osr_model_with_tsne
 from python.src.analysis import plot_snr_vs_accuracy                      # NEW
-
+from python.src.utils import prepare_unique_file
 
 # ── seed → fixed SNR (dB) map ───────────────────────────────────────────────
 EVAL_SEED_TO_SNR: dict[int, float] = {
-    #410:  10,
-    #118:   8,
-    #276:   6,
-    #314:   4,
-    #152:   2,
-    340:   0,
-    #142:  -2,
-    #264:  -4,
-    #336:  -6,
-    #608:  -8,
-    #530: -10,
-    #472: -12,
-    #214: -14,
+    #110:  10,
+    108:   8,
+    #106:   6,
+    #104:   4,
+    #102:   2,
+    100:   0,
+    #112:  -2,
+    114:  -4,
+    #116:  -6,
+    118:  -8,
+    #120: -10,
+    #122: -12,
+    #124: -14,
 }
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -51,13 +51,14 @@ def main():
 
     eval_seeds        = list(EVAL_SEED_TO_SNR.keys())
     eval_n_per_class  = [500]
+    unk_n_per_class = 200
     eval_spec_version = "v2"
 
     batch_size = 32
 
     all_results = []
 
-    test_thresholds = [None]
+    test_thresholds = [0.4] # [0.45, 0.50, 0.55, 0.60]
 
     for test_threshold in test_thresholds:
         for ckpt_seed in ckpt_seeds:
@@ -90,13 +91,15 @@ def main():
                                     project_root
                                     / "reports"
                                     / "figures"
-                                    / f"osr_tsne_{ckpt_tag}"
+                                    / f"osr_evaluation_{ckpt_tag}"
+                                    / f"eval_CM_&_tsne"
                             )
                             result = evaluate_osr_model_with_tsne(
                                 ckpt_seed=ckpt_seed,
                                 ckpt_n_per_class=ckpt_n,
                                 eval_seed=eval_seed,
                                 eval_n_per_class=eval_n,
+                                unk_n_per_class=unk_n_per_class,
                                 eval_spec_version=eval_spec_version,
                                 project_root=project_root,
                                 fig_dir=tsne_dir,
@@ -161,7 +164,7 @@ def main():
                 continue
 
             ckpt_tag = f"s{ckpt_seed}_n{ckpt_n}"
-            fig_dir  = project_root / "reports" / "figures" / f"osr_snr_sweep_{ckpt_tag}"
+            fig_dir  = prepare_unique_file(project_root / "reports" / "figures", f"osr_evaluation_{ckpt_tag}")
 
             print(f"\nGenerating SNR-accuracy plot → {fig_dir}")
             plot_snr_vs_accuracy(

@@ -172,7 +172,7 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.phi = char("rad");
             params.units.alpha_tukey = char("ratio");
             params.units.delta = char("ratio");
-        
+
         case 3 % SFM sweep (Clean)
             % Constraints
             lims.A    = [0.8, 1.2];
@@ -220,7 +220,8 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.phi    = char("rad");
             params.units.phi_m1 = char("rad");
             params.units.phi_m2 = char("rad");
-
+ 
+        
         case 4  % Partial Band Noise Jamming (Clean)
             % Constraints
             lims.A   = [0.8, 1.2];
@@ -338,7 +339,7 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.phi_h    = char("rad vector");
             params.units.P_trans  = char("ratio vector");
             params.units.N_trans  = char("samples vector");
-        
+            
         case 6  % OFDM Jamming (Clean)
             % Constraints
             lims.A            = [0.8, 1.2];
@@ -422,7 +423,8 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.fL          = char("Hz");
             params.units.fH          = char("Hz");
             params.units.phi         = char("rad");
-            
+
+
         case 7  % Periodic Gaussian Pulse Jamming (Clean)
             % Constraints
             lims.A         = [0.8, 1.2];
@@ -622,7 +624,7 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.q        = char("bits");
             params.units.L        = char("integer");
             params.units.A_q      = char("linear vector");
-         
+
         case 10 % Moving-Band Noise (MBN) / Unknown Class 1
             % Constraints
             lims.A              = [0.8, 1.2];
@@ -655,117 +657,38 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.frame_len     = char("samples");
             params.units.hop_len       = char("samples");
 
-        case 11  % Reactive Burst Jammer (narrowband, bursty) Unknown Class 2
+        case 11  % CP-2FSK (Continuous-Phase Binary FSK) – Unknown Class 2
             % Constraints
-            lims.A               = [0.8, 1.2];
-            lims.fc              = [0.5e6, 4.5e6];
-            lims.B               = [100e3, 500e3];      % narrowband burst
-            lims.T_on_mean       = [16, 48];             % samples
-            lims.T_on_std        = [3, 8];              % samples
-            lims.mu_ln           = [log(20e-6), log(80e-6)];   % log of inter-arrival mean (seconds)
-            lims.sigma_ln        = [0.4, 0.9];          % shape parameter
-            lims.M_max           = [8, 25];
+            lims.A      = [0.8, 1.2];
+            lims.Rc     = [50e3, 200e3];       % symbol rate (samples per second)
+            lims.delta_f  = [100e3, 400e3];      % peak frequency deviation (Hz)
+            lims.fc_range = [0.5e6, 4.5e6];    % allowed carrier range
+            lims.phi_range = [0, 2*pi];
 
-            params.A     = lims.A(1) + diff(lims.A) * rand;
-            params.fc    = lims.fc(1) + diff(lims.fc) * rand;
-            burst_info.B     = lims.B(1) + diff(lims.B) * rand;
-            % T_on in samples: convert from sample counts directly
-            burst_info.T_on_mean = randi(lims.T_on_mean);
-            burst_info.T_on_std  = randi(lims.T_on_std);
-            burst_info.mu_ln     = lims.mu_ln(1) + diff(lims.mu_ln) * rand;
-            burst_info.sigma_ln  = lims.sigma_ln(1) + diff(lims.sigma_ln) * rand;
-            burst_info.M_max     = randi(lims.M_max);
-
-            params.lims = lims;
-            params.burst_info = burst_info;
-
-            params.units.A          = char("linear");
-            params.units.fc         = char("Hz");
-            params.units.B          = char("Hz");
-            params.units.T_on_mean  = char("samples");
-            params.units.T_on_std   = char("samples");
-            params.units.mu_ln      = char("log seconds");
-            params.units.sigma_ln   = char("ratio");
-            params.units.M_max      = char("integer");            
-
-        case 12  % Impulsive α‑Stable Noise Jammer  unknown 1
-            % Constraints
-            lims.A          = [0.8, 1.2];
-            lims.alpha      = [1.1, 1.4];     % impulsive regime 
-            lims.beta       = [-0.2, 02];     % Slight skewness/asymmetry
-            lims.gamma      = [0.5, 2.0];     % Scale parameter
-            lims.delta      = [-0.1, 0.1];    % Minor location/DC offset
-
-            params.A     = lims.A(1) + diff(lims.A) * rand;
-            params.alpha = lims.alpha(1) + diff(lims.alpha) * rand;
-            params.gamma = lims.gamma(1) + diff(lims.gamma) * rand;
-            params.beta  = lims.beta(1) + diff(lims.beta) * rand;
-            params.delta = lims.delta(1) + diff(lims.delta) * rand;
-
-            params.lims = lims;
-            params.units.A     = char("linear");
-            params.units.alpha = char("ratio (1,2]");
-            params.units.beta  = char("ratio");
-            params.units.gamma = char("scale");
-            params.units.delta = char("location");          
-
-          case 13  % Chaotic FM Jammer (logistic map drives instantaneous frequency)
-            % Constraints
-            lims.A          = [0.8, 1.2];
-            lims.fc         = [0.5e6, 4.5e6];
-            lims.phi_range  = [0, 2*pi];
-            lims.r_logistic = [3.97, 3.999];   % chaotic regime (avoid period windows)
-            lims.f_dev      = [400e3, 900e3]; % chaotic frequency excursion (Hz)
-            lims.y0         = [0.15, 0.85];   % initial condition (avoid 0, 0.5, 1)
-            lims.f_chaos     =[200e3, 800e3];  % chaotic behaviour
-
-            % Sample core parameters
-            params.A   = lims.A(1) + diff(lims.A) * rand(1);
-            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
-            params.Rc  = lims.r_logistic(1) + diff(lims.r_logistic) * rand(1);   % logistic r
-            params.sigma = lims.f_dev(1) + diff(lims.f_dev) * rand(1);           % freq deviation (Hz)
-            params.alpha = lims.y0(1) + diff(lims.y0) * rand(1);                 % logistic y0
-            params.fm = lims.f_chaos(1) + diff(lims.f_chaos) * rand(1);
-
-            % fc must leave room for the chaotic excursion on both sides
-            fc_min_valid = lims.fc(1) + params.sigma;
-            fc_max_valid = lims.fc(2) - params.sigma;
-            params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
-
-            params.lims = lims;
-
-            % Units (note semantic shift from previous version)
-            params.units.A     = char("linear");
-            params.units.fc    = char("Hz");
-            params.units.fm    = char("Hz");
-            params.units.phi   = char("rad");
-            params.units.Rc    = char("logistic-r (chaos param)");
-            params.units.sigma = char("Hz (chaotic freq deviation)");
-            params.units.alpha = char("ratio (logistic y0)");
-                        
-        case 14  % Triangular FM (TFM) - Unknown Class 5
-            % Constraints
-            lims.A          = [0.8, 1.2];
-            lims.delta_f    = [1e6, 4e6];       % Peak-to-peak sweep bandwidth (Hz)
-            lims.fm       = [10e3, 50e3];     % Sweep repetition frequency (Hz)
-            lims.K    = [0.3, 0.7];       % Hardware-induced sweep asymmetry
-            
-            % Sample basic parameters
-            params.A        = lims.A(1) + diff(lims.A) * rand(1);
+            params.A      = lims.A(1) + diff(lims.A) * rand(1);
+            params.Rc     = lims.Rc(1) + diff(lims.Rc) * rand(1);
             params.delta_f  = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
-            params.fm       = lims.fm(1) + diff(lims.fm) * rand(1);
-            % Randomize duty cycle to simulate non-ideal VCO charging/discharging
-            params.K = lims.K(1) + diff(lims.K) * rand(1);
-            
-            params.lims = lims;
-            
-            % Units
-            params.units.A          = char("linear");
-            params.units.delta_f    = char("Hz");
-            params.units.fm         = char("Hz");
-            params.units.K   = char("ratio");
 
-        case 15  % Direct Sequence Spread Spectrum (DSSS) / Unknown Class 6
+            % Bandwidth ≈ 2*(f_dev + Rs) (Carson's rule)
+            B_occ = 2 * (params.delta_f + params.Rc);
+            fc_min_valid = lims.fc_range(1) + B_occ/2;
+            fc_max_valid = lims.fc_range(2) - B_occ/2;
+            if fc_min_valid >= fc_max_valid
+                params.fc = (lims.fc_range(1) + lims.fc_range(2)) / 2;
+            else
+                params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+            end
+
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+
+            params.lims = lims;
+            params.units.A     = char("linear");
+            params.units.Rc    = char("Hz");
+            params.units.delta_f = char("Hz");
+            params.units.fc    = char("Hz");
+            params.units.phi   = char("rad");
+
+        case 12  % Direct Sequence Spread Spectrum (DSSS) / Unknown Class 3
             % Constraints
             lims.A      = [0.8, 1.2];
             lims.beta   = [0.2, 0.35];          % raised‑cosine roll‑off
@@ -798,6 +721,95 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.Rc    = char("Hz");
             params.units.fc    = char("Hz");
             params.units.phi   = char("rad");
+            
+        case 13  % Triangular FM (TFM) - Unknown Class 4
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.delta_f    = [1e6, 4e6];       % Peak-to-peak sweep bandwidth (Hz)
+            lims.fm       = [10e3, 50e3];     % Sweep repetition frequency (Hz)
+            lims.K    = [0.3, 0.7];       % Hardware-induced sweep asymmetry
+            
+            % Sample basic parameters
+            params.A        = lims.A(1) + diff(lims.A) * rand(1);
+            params.delta_f  = lims.delta_f(1) + diff(lims.delta_f) * rand(1);
+            params.fm       = lims.fm(1) + diff(lims.fm) * rand(1);
+            % Randomize duty cycle to simulate non-ideal VCO charging/discharging
+            params.K = lims.K(1) + diff(lims.K) * rand(1);
+            
+            params.lims = lims;
+            
+            % Units
+            params.units.A          = char("linear");
+            params.units.delta_f    = char("Hz");
+            params.units.fm         = char("Hz");
+            params.units.K   = char("ratio");
+
+          case 14  % Chaotic FM Jammer (logistic map drives instantaneous frequency)
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.fc         = [0.5e6, 4.5e6];
+            lims.phi_range  = [0, 2*pi];
+            lims.r_logistic = [3.97, 3.999];   % chaotic regime (avoid period windows)
+            lims.f_dev      = [400e3, 900e3]; % chaotic frequency excursion (Hz)
+            lims.y0         = [0.15, 0.85];   % initial condition (avoid 0, 0.5, 1)
+            lims.f_chaos     =[200e3, 800e3];  % chaotic behaviour
+
+            % Sample core parameters
+            params.A   = lims.A(1) + diff(lims.A) * rand(1);
+            params.phi = lims.phi_range(1) + diff(lims.phi_range) * rand(1);
+            params.Rc  = lims.r_logistic(1) + diff(lims.r_logistic) * rand(1);   % logistic r
+            params.sigma = lims.f_dev(1) + diff(lims.f_dev) * rand(1);           % freq deviation (Hz)
+            params.alpha = lims.y0(1) + diff(lims.y0) * rand(1);                 % logistic y0
+            params.fm = lims.f_chaos(1) + diff(lims.f_chaos) * rand(1);
+
+            % fc must leave room for the chaotic excursion on both sides
+            fc_min_valid = lims.fc(1) + params.sigma;
+            fc_max_valid = lims.fc(2) - params.sigma;
+            params.fc = fc_min_valid + (fc_max_valid - fc_min_valid) * rand(1);
+
+            params.lims = lims;
+
+            % Units (note semantic shift from previous version)
+            params.units.A     = char("linear");
+            params.units.fc    = char("Hz");
+            params.units.fm    = char("Hz");
+            params.units.phi   = char("rad");
+            params.units.Rc    = char("logistic-r (chaos param)");
+            params.units.sigma = char("Hz (chaotic freq deviation)");
+            params.units.alpha = char("ratio (logistic y0)");
+
+        case 15  % Reactive Burst Jammer (narrowband, bursty) Unknown Class 2
+            % Constraints
+            lims.A               = [0.8, 1.2];
+            lims.fc              = [0.5e6, 4.5e6];
+            lims.B               = [100e3, 500e3];      % narrowband burst
+            lims.T_on_mean       = [16, 48];             % samples
+            lims.T_on_std        = [3, 8];              % samples
+            lims.mu_ln           = [log(20e-6), log(80e-6)];   % log of inter-arrival mean (seconds)
+            lims.sigma_ln        = [0.4, 0.9];          % shape parameter
+            lims.M_max           = [8, 25];
+
+            params.A     = lims.A(1) + diff(lims.A) * rand;
+            params.fc    = lims.fc(1) + diff(lims.fc) * rand;
+            burst_info.B     = lims.B(1) + diff(lims.B) * rand;
+            % T_on in samples: convert from sample counts directly
+            burst_info.T_on_mean = randi(lims.T_on_mean);
+            burst_info.T_on_std  = randi(lims.T_on_std);
+            burst_info.mu_ln     = lims.mu_ln(1) + diff(lims.mu_ln) * rand;
+            burst_info.sigma_ln  = lims.sigma_ln(1) + diff(lims.sigma_ln) * rand;
+            burst_info.M_max     = randi(lims.M_max);
+
+            params.lims = lims;
+            params.burst_info = burst_info;
+
+            params.units.A          = char("linear");
+            params.units.fc         = char("Hz");
+            params.units.B          = char("Hz");
+            params.units.T_on_mean  = char("samples");
+            params.units.T_on_std   = char("samples");
+            params.units.mu_ln      = char("log seconds");
+            params.units.sigma_ln   = char("ratio");
+            params.units.M_max      = char("integer");            
  
         case 16  % Pulsed Gaussian Noise Jamming (PGNJ) – Unknown Class 7
             % Constraints
@@ -818,7 +830,7 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.PRF        = char("Hz");
             params.units.duty_cycle = char("ratio");
             params.units.rise_samp  = char("samples");
-
+         
         case 17  % Phase-Coded Pulse Jammer (Barker-13 or P4 polyphase)
             % Constraints (tightened to guarantee multiple pulses per window
             % and avoid clipping pathology from sparse pulse trains)
@@ -888,8 +900,52 @@ function params = generate_sample_params(class_id, sample_idx, spec)
             params.units.M         = char("integer");
             params.units.t_start   = char("seconds");
 
+        case 18  % Impulsive α‑Stable Noise Jammer  unknown 
+            % Constraints
+            lims.A          = [0.8, 1.2];
+            lims.alpha      = [1.1, 1.4];     % impulsive regime 
+            lims.beta       = [-0.2, 02];     % Slight skewness/asymmetry
+            lims.gamma      = [0.5, 2.0];     % Scale parameter
+            lims.delta      = [-0.1, 0.1];    % Minor location/DC offset
+
+            params.A     = lims.A(1) + diff(lims.A) * rand;
+            params.alpha = lims.alpha(1) + diff(lims.alpha) * rand;
+            params.gamma = lims.gamma(1) + diff(lims.gamma) * rand;
+            params.beta  = lims.beta(1) + diff(lims.beta) * rand;
+            params.delta = lims.delta(1) + diff(lims.delta) * rand;
+
+            params.lims = lims;
+            params.units.A     = char("linear");
+            params.units.alpha = char("ratio (1,2]");
+            params.units.beta  = char("ratio");
+            params.units.gamma = char("scale");
+            params.units.delta = char("location");
+
+        case 19  % Intermittent OFDM (I-OFDM) / Unknown Class 
+            % Constraints
+            lims.A      = [0.8, 1.2];
+            lims.D_b    = [100, 300];       % Active burst duration (samples)
+            lims.G_b    = [50, 200];        % Gap duration (samples)
+            
+            % Sample amplitude
+            params.A = lims.A(1) + diff(lims.A) * rand(1);
+            
+            % store the constraints for a while loop in the signal
+            iofdm_info.D_b_range = lims.D_b;
+            iofdm_info.G_b_range = lims.G_b;
+            iofdm_info.taper_taps = 5;      % 5-tap moving avg for smoothing
+            
+            params.iofdm_info = iofdm_info;
+            params.lims = lims;
+            
+            % Units
+            params.units.A          = char("linear");
+            params.units.D_b_range  = char("samples");
+            params.units.G_b_range  = char("samples");
+            params.units.taper_taps = char("integer");
+
         otherwise
-            error('Invalid class_id: %d. Must be 0-17.', class_id);
+            error('Invalid class_id: %d. Must be 0-19.', class_id);
     end
 
     required_fields = clean.get_active_fields(class_id);
@@ -897,5 +953,5 @@ function params = generate_sample_params(class_id, sample_idx, spec)
 
     % Restore RNG State so as not to affect the rest of the workspace.
     rng(old_state);
-end 
+end
 

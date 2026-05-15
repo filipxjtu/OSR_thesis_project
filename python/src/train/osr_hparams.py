@@ -12,7 +12,7 @@ class OSRHParams:
 
     # Curriculum
     warmup_epochs: int = 30
-    threshold_recal_interval: int = 1
+    threshold_recal_interval: int = 5
 
     # Optimization
     lr_backbone: float = 1e-3

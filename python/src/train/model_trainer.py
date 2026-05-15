@@ -70,6 +70,7 @@ def train_model(
         batch_size=32,
         device="auto",
         seed=seed,
+        num_classes=10
     )
 
     if hparams.seed is not None:
@@ -93,7 +94,7 @@ def train_model(
     test_loader  = create_eval_loader(test_set,  hparams.batch_size, device)
 
     model_cls = MODEL_REGISTRY[model_name]
-    model = model_cls(num_classes=10).to(device)
+    model = model_cls(num_classes=hparams.num_classes).to(device)
 
     criterion_ce = nn.CrossEntropyLoss(label_smoothing=0.1)
     criterion_supcon = SupConLoss(temperature=0.1).to(device)
@@ -166,8 +167,8 @@ def train_model(
     dir_path = project_root / "reports" / "figures"
     figures_dir = prepare_unique_file(dir_path, fig_name)
 
-    generate_confusion_outputs(model, val_loader, device, figures_dir, n_classes=10)
-    plot_cnn_feature_embedding(model, val_loader, device, figures_dir, n_classes=10)
+    generate_confusion_outputs(model, val_loader, device, figures_dir, n_classes=hparams.num_classes)
+    plot_cnn_feature_embedding(model, val_loader, device, figures_dir, n_classes=hparams.num_classes)
 
     th_dir = figures_dir / "thresholds"
     plot_threshold(thresholds, th_dir)

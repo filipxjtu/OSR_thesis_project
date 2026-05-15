@@ -8,6 +8,10 @@ from torch.utils.data import DataLoader
 
 from ..utils import combined_loss
 
+from collections import defaultdict
+import json
+from pathlib import Path
+
 
 @torch.no_grad()
 def populate_codebook_epoch(
@@ -97,6 +101,77 @@ def collect_validation_scores(
 
     return torch.cat(scores, dim=0), torch.cat(preds, dim=0)
 
+@torch.no_grad()
+def collect_feature_stats(
+    model,
+    loader_known,
+    loader_unknown,
+    device,
+    save_path: Path | None = None,
+) -> dict:
+    """
+    Runs both loaders through the OSR model and records all 8 calibrator
+    input features split by known/unknown. Returns a dict of stats you
+    can print or dump to JSON.
+    """
+    FEATURE_NAMES = [
+        "code_dist", "unc", "emb_norm_norm",
+        "runner_up_dist", "margin_codebook", "logit_margin_sq",
+        "hamming_dist_pred", "hamming_margin",
+    ]
+
+    buckets = {"known": defaultdict(list), "unknown": defaultdict(list)}
+
+    for loader, split in [(loader_known, "known"), (loader_unknown, "unknown")]:
+        for x_stft, x_iq, x_if, _ in loader:
+            x_stft = x_stft.to(device)
+            x_iq   = x_iq.to(device)
+            x_if   = x_if.to(device)
+
+            # Grab the raw calib_input before it enters the MLP.
+            # We do a forward pass and intercept via a hook.
+            captured = {}
+            handle = model.score_calibrator[0].register_forward_hook(
+                lambda m, inp, out: captured.update({"inp": inp[0].detach().cpu()})
+            )
+            model.forward_with_osr_logits(x_stft, x_iq, x_if)
+            handle.remove()
+
+            feat = captured["inp"]  # (B, 8)
+            for i, name in enumerate(FEATURE_NAMES):
+                buckets[split][name].append(feat[:, i])
+
+    stats = {}
+    for split in ("known", "unknown"):
+        stats[split] = {}
+        for name in FEATURE_NAMES:
+            vals = torch.cat(buckets[split][name])
+            stats[split][name] = {
+                "mean": float(vals.mean()),
+                "std":  float(vals.std()),
+                "p25":  float(vals.quantile(0.25)),
+                "p75":  float(vals.quantile(0.75)),
+            }
+
+    # separation score: |mu_unk - mu_known| / pooled_std
+    print(f"\n{'Feature':<22} {'Known μ':>8} {'Unk μ':>8} {'Sep↑':>7}")
+    print("-" * 50)
+    for name in FEATURE_NAMES:
+        mu_k = stats["known"][name]["mean"]
+        mu_u = stats["unknown"][name]["mean"]
+        s_k  = stats["known"][name]["std"]
+        s_u  = stats["unknown"][name]["std"]
+        pooled = ((s_k**2 + s_u**2) / 2) ** 0.5
+        sep = abs(mu_u - mu_k) / (pooled + 1e-6)
+        print(f"{name:<22} {mu_k:>8.3f} {mu_u:>8.3f} {sep:>7.2f}")
+
+    if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "w") as f:
+            json.dump(stats, f, indent=2)
+        print(f"\nFeature stats saved to: {save_path}")
+
+    return stats
 
 @torch.no_grad()
 def evaluate_osr(

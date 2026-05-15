@@ -1,5 +1,5 @@
 function x_clean = synthesize_clean_signal_class5(params, spec)
-% SYNTHESIZE_CLEAN_SIGNAL_CLASS5
+% SYNTHESIZE_CLEAN_SIGNAL_CLASS 5
 % Frequency Hopping Jamming with:
 % - discrete frequency grid
 % - PLL transient (amplitude suppression)

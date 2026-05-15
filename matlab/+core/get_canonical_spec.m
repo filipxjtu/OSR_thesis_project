@@ -8,9 +8,9 @@ function spec = get_canonical_spec()
 
     % Class set
     spec.class_ids = int32(0:9);   
-    spec.unknown_class_ids = int32(10:13);
-    spec.unknown_proxy_class_ids = int32(10:11);
-    spec.unknown_test_class_ids = int32(12:13);
+    spec.unknown_class_ids = int32(10:19);
+    spec.unknown_proxy_class_ids = int32(10:16);
+    spec.unknown_test_class_ids = int32(17:19);
 
     % SNR control
     spec.snr_mode = "range";           % "range" | "fixed"
